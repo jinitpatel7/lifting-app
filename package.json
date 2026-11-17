@@ -1,0 +1,9 @@
+{
+  "name": "setline-preview",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node preview/server.mjs",
+    "start": "node preview/server.mjs"
+  }
+}

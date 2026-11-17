@@ -1,0 +1,227 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000101 /* SetlineApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000201 /* SetlineApp.swift */; };
+		100000000000000000000102 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000202 /* Models.swift */; };
+		100000000000000000000103 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000203 /* Design.swift */; };
+		100000000000000000000104 /* Today.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000204 /* Today.swift */; };
+		100000000000000000000105 /* Library.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000205 /* Library.swift */; };
+		100000000000000000000106 /* SampleData.json in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000206 /* SampleData.json */; };
+		100000000000000000000107 /* workout-hero.png in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000207 /* workout-hero.png */; };
+		100000000000000000000108 /* muscle-map.png in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000208 /* muscle-map.png */; };
+		100000000000000000000109 /* muscle-map-lower.png in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000209 /* muscle-map-lower.png */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		100000000000000000000201 /* SetlineApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetlineApp.swift; sourceTree = "<group>"; };
+		100000000000000000000202 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		100000000000000000000203 /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
+		100000000000000000000204 /* Today.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Today.swift; sourceTree = "<group>"; };
+		100000000000000000000205 /* Library.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Library.swift; sourceTree = "<group>"; };
+		100000000000000000000206 /* SampleData.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = SampleData.json; sourceTree = "<group>"; };
+		100000000000000000000207 /* workout-hero.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "workout-hero.png"; sourceTree = "<group>"; };
+		100000000000000000000208 /* muscle-map.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "muscle-map.png"; sourceTree = "<group>"; };
+		100000000000000000000209 /* muscle-map-lower.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "muscle-map-lower.png"; sourceTree = "<group>"; };
+		100000000000000000000210 /* Setline.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Setline.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		100000000000000000000301 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		100000000000000000000401 = {
+			isa = PBXGroup;
+			children = (100000000000000000000402 /* Setline */, 100000000000000000000404 /* Products */);
+			sourceTree = "<group>";
+		};
+		100000000000000000000402 /* Setline */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000201 /* SetlineApp.swift */,
+				100000000000000000000202 /* Models.swift */,
+				100000000000000000000203 /* Design.swift */,
+				100000000000000000000204 /* Today.swift */,
+				100000000000000000000205 /* Library.swift */,
+				100000000000000000000403 /* Resources */,
+			);
+			path = Setline;
+			sourceTree = "<group>";
+		};
+		100000000000000000000403 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000206 /* SampleData.json */,
+				100000000000000000000207 /* workout-hero.png */,
+				100000000000000000000208 /* muscle-map.png */,
+				100000000000000000000209 /* muscle-map-lower.png */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		100000000000000000000404 /* Products */ = {
+			isa = PBXGroup;
+			children = (100000000000000000000210 /* Setline.app */);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		100000000000000000000501 /* Setline */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 100000000000000000000901 /* Build configuration list for PBXNativeTarget "Setline" */;
+			buildPhases = (
+				100000000000000000000701 /* Sources */,
+				100000000000000000000301 /* Frameworks */,
+				100000000000000000000601 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = Setline;
+			productName = Setline;
+			productReference = 100000000000000000000210 /* Setline.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		100000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = { 100000000000000000000501 = {CreatedOnToolsVersion = 16.0; }; };
+			};
+			buildConfigurationList = 100000000000000000000902 /* Build configuration list for PBXProject "Setline" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = 100000000000000000000401;
+			productRefGroup = 100000000000000000000404 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (100000000000000000000501 /* Setline */);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		100000000000000000000601 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000106 /* SampleData.json in Resources */,
+				100000000000000000000107 /* workout-hero.png in Resources */,
+				100000000000000000000108 /* muscle-map.png in Resources */,
+				100000000000000000000109 /* muscle-map-lower.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		100000000000000000000701 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000101 /* SetlineApp.swift in Sources */,
+				100000000000000000000102 /* Models.swift in Sources */,
+				100000000000000000000103 /* Design.swift in Sources */,
+				100000000000000000000104 /* Today.swift in Sources */,
+				100000000000000000000105 /* Library.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		100000000000000000000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Setline;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.setline.preview;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		100000000000000000000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Setline;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.setline.preview;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		100000000000000000000803 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				ENABLE_TESTABILITY = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		100000000000000000000804 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		100000000000000000000901 /* Build configuration list for PBXNativeTarget "Setline" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (100000000000000000000801 /* Debug */, 100000000000000000000802 /* Release */);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		100000000000000000000902 /* Build configuration list for PBXProject "Setline" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (100000000000000000000803 /* Debug */, 100000000000000000000804 /* Release */);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 100000000000000000000001 /* Project object */;
+}

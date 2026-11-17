@@ -1,0 +1,45 @@
+{
+  "today": "2026-11-17",
+  "week": [
+    {"date":"2026-11-16","routineID":"lower-a"},
+    {"date":"2026-11-17","routineID":"upper-a"},
+    {"date":"2026-11-18"},
+    {"date":"2026-11-19","routineID":"lower-a"},
+    {"date":"2026-11-20","routineID":"upper-a"},
+    {"date":"2026-11-21"},
+    {"date":"2026-11-22"}
+  ],
+  "routines": [
+    {
+      "id":"upper-a", "name":"Upper Body A", "focus":"Strength focus", "minutes":55,
+      "primaryMuscles":"Chest, shoulders", "secondaryMuscles":"Back, triceps",
+      "exercises":[
+        {"id":"bench-press","name":"Barbell Bench Press","muscles":"Chest · Triceps","symbol":"dumbbell","sets":4,"reps":"5–6","rir":2,"restSeconds":180,"previous":{"weightKg":80,"reps":6},"image":"workout-hero.png"},
+        {"id":"barbell-row","name":"Barbell Row","muscles":"Upper back · Biceps","symbol":"dumbbell","sets":4,"reps":"6–8","rir":2,"restSeconds":150,"previous":{"weightKg":70,"reps":8}},
+        {"id":"overhead-press","name":"Overhead Press","muscles":"Shoulders · Triceps","symbol":"dumbbell","sets":3,"reps":"6–8","rir":2,"restSeconds":150,"previous":{"weightKg":45,"reps":7}},
+        {"id":"lat-pulldown","name":"Lat Pulldown","muscles":"Lats · Biceps","symbol":"figure.strengthtraining.traditional","sets":3,"reps":"8–10","rir":2,"restSeconds":120,"previous":{"weightKg":60,"reps":10}},
+        {"id":"cable-pushdown","name":"Cable Triceps Pushdown","muscles":"Triceps","symbol":"figure.strengthtraining.traditional","sets":3,"reps":"10–12","rir":1,"restSeconds":90,"previous":{"weightKg":25,"reps":12}}
+      ]
+    },
+    {
+      "id":"lower-a", "name":"Lower Body A", "focus":"Strength focus", "minutes":45,
+      "primaryMuscles":"Quads, glutes", "secondaryMuscles":"Hamstrings, calves",
+      "exercises":[
+        {"id":"back-squat","name":"Barbell Back Squat","muscles":"Quads · Glutes","symbol":"dumbbell","sets":4,"reps":"5–6","rir":2,"restSeconds":180,"previous":{"weightKg":105,"reps":5}},
+        {"id":"romanian-deadlift","name":"Romanian Deadlift","muscles":"Hamstrings · Glutes","symbol":"dumbbell","sets":3,"reps":"6–8","rir":2,"restSeconds":150,"previous":{"weightKg":90,"reps":8}},
+        {"id":"calf-raise","name":"Standing Calf Raise","muscles":"Calves","symbol":"figure.strengthtraining.traditional","sets":3,"reps":"10–12","rir":1,"restSeconds":90,"previous":{"weightKg":50,"reps":11}}
+      ]
+    }
+  ],
+  "history": [
+    {"id":"session-3","date":"2026-11-16","routineID":"lower-a","minutes":45,"sets":10},
+    {"id":"session-2","date":"2026-11-13","routineID":"upper-a","minutes":52,"sets":17},
+    {"id":"session-1","date":"2026-11-10","routineID":"upper-a","minutes":54,"sets":17}
+  ],
+  "benchTrend":[
+    {"date":"2026-10-23","weightKg":72.5},
+    {"date":"2026-10-30","weightKg":75},
+    {"date":"2026-11-06","weightKg":77.5},
+    {"date":"2026-11-13","weightKg":80}
+  ]
+}
