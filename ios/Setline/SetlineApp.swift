@@ -54,37 +54,33 @@ struct SetlineRoot: View {
     @State private var day: String?
     @State private var routine: Routine?
     @State private var history: HistoryScreen.Section = .progress
+    @State private var showsSample = false
 
     var body: some View {
-        Group {
-            if let sample = model.sample {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 14) {
-                            Color.clear.frame(height: 0).id("top").accessibilityHidden(true)
-                            screen(sample)
-                        }
-                        .padding(.horizontal, 16).padding(.bottom, 16)
-                        .frame(maxWidth: 590)
-                        .frame(maxWidth: .infinity)
-                    }
-                    .onChange(of: tab) { proxy.scrollTo("top", anchor: .top) }
-                    .onChange(of: routine?.id) { proxy.scrollTo("top", anchor: .top) }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 14) {
+                    Color.clear.frame(height: 0).id("top").accessibilityHidden(true)
+                    screen
                 }
-                .safeAreaInset(edge: .top, spacing: 0) { header }
-                .safeAreaInset(edge: .bottom, spacing: 0) { dock }
-            } else {
-                ContentUnavailableView("Sample data is unavailable", systemImage: "tray", description: Text("Reopen Setline to try again."))
+                .padding(.horizontal, 16).padding(.bottom, 16)
+                .frame(maxWidth: 590)
+                .frame(maxWidth: .infinity)
             }
+            .onChange(of: tab) { proxy.scrollTo("top", anchor: .top) }
+            .onChange(of: routine?.id) { proxy.scrollTo("top", anchor: .top) }
+            .onChange(of: showsSample) { proxy.scrollTo("top", anchor: .top) }
         }
+        .safeAreaInset(edge: .top, spacing: 0) { header }
+        .safeAreaInset(edge: .bottom, spacing: 0) { dock }
         .background(Palette.background.ignoresSafeArea())
         .preferredColorScheme(appearance.colorScheme)
         .sheet(item: $sheet) { presented in
             switch presented {
             case .bodyweight(let date):
-                WeightSheet(model: model, date: date, unit: unit)
+                WeightSheet(model: model, date: date, unit: unit, sampleMode: showsSample)
             case .workout:
-                WorkoutPreviewSheet(model: model) {
+                WorkoutSheet(model: model, unit: unit, sampleMode: showsSample) {
                     sheet = nil
                     tab = .routines
                 }
@@ -100,15 +96,29 @@ struct SetlineRoot: View {
         }
     }
 
-    @ViewBuilder private func screen(_ sample: SampleData) -> some View {
+    @ViewBuilder private var screen: some View {
         switch tab {
         case .today:
-            TodayScreen(sample: sample, model: model, unit: unit, openRoutines: { tab = .routines },
-                        start: start, editWeight: { sheet = .bodyweight($0) }, selectedDay: $day)
+            if showsSample, let sample = model.sample {
+                TodayScreen(sample: sample, model: model, unit: unit, openRoutines: { tab = .routines },
+                            start: start, editWeight: { sheet = .bodyweight($0) }, selectedDay: $day)
+            } else {
+                PersonalTodayScreen(records: model.records, unit: unit, browse: { tab = .routines },
+                                    start: startSession, editWeight: { sheet = .bodyweight($0) }, selectedDay: $day)
+            }
         case .routines:
-            RoutinesScreen(sample: sample, unit: unit, active: model.activeRoutine != nil, start: start, selection: $routine)
+            if showsSample, let sample = model.sample {
+                RoutinesScreen(sample: sample, unit: unit, active: model.activeRoutine != nil, start: start, selection: $routine)
+            } else {
+                PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession)
+            }
         case .history:
-            HistoryScreen(sample: sample, unit: unit, selection: $history)
+            if showsSample, let sample = model.sample {
+                HistoryScreen(sample: sample, unit: unit, selection: $history)
+            } else {
+                PersonalHistoryScreen(sessions: model.records.sessions, bodyweight: model.records.bodyweightEntries,
+                                      unit: unit, selection: $history)
+            }
         case .settings:
             SettingsScreen(appearance: $appearance, opaque: $opaque, unit: $unit)
         }
@@ -126,10 +136,24 @@ struct SetlineRoot: View {
                 Text("Setline").font(.title3.weight(.heavy))
             }
             Spacer(minLength: 0)
-            Text("Sample data").font(.caption2.weight(.bold)).multilineTextAlignment(.center)
-                .foregroundStyle(Palette.purple)
-                .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(Palette.lavender, in: Capsule())
+            if model.sample != nil {
+                Button {
+                    showsSample.toggle()
+                    day = nil
+                    routine = nil
+                    history = .progress
+                } label: {
+                    Text(showsSample ? "Sample data" : "View sample data")
+                        .font(.caption2.weight(.bold)).multilineTextAlignment(.center)
+                        .foregroundStyle(Palette.purple)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                        .background(Palette.lavender, in: Capsule())
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showsSample ? "Sample data. Return to your data" : "View sample data")
+            }
             Button {
                 appearance = colorScheme == .dark ? .light : .dark
             } label: {
@@ -151,7 +175,7 @@ struct SetlineRoot: View {
 
     private var dock: some View {
         VStack(spacing: 5) {
-            let active = model.activeRoutine
+            let activeName = showsSample ? model.activeRoutine?.name : model.records.activeSession?.routineSnapshot.name
             Button {
                 sheet = .workout
             } label: {
@@ -162,12 +186,12 @@ struct SetlineRoot: View {
                         .background(Color(hex: 0x483667), in: RoundedRectangle(cornerRadius: 9))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(active?.name ?? "Workout log").font(.subheadline.weight(.bold))
+                        Text(activeName ?? "Workout log").font(.subheadline.weight(.bold))
                         HStack(spacing: 4) {
-                            if active != nil {
+                            if activeName != nil {
                                 Circle().fill(Color(hex: 0xFFA6B8)).frame(width: 6, height: 6).accessibilityHidden(true)
                             }
-                            Text(active == nil ? "No active workout" : "Active preview").font(.caption)
+                            Text(activeName == nil ? "No active workout" : showsSample ? "Active preview" : "Active workout").font(.caption)
                         }
                         .foregroundStyle(Color(hex: 0xE0D7EC))
                     }
@@ -181,7 +205,7 @@ struct SetlineRoot: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityHint(active == nil ? "Open workout log" : "Resume workout preview")
+            .accessibilityHint(activeName == nil ? "Open workout log" : "Resume workout")
             HStack(spacing: 3) {
                 ForEach(MainTab.allCases) { destination in
                     Button {
@@ -214,12 +238,17 @@ struct SetlineRoot: View {
     private func start(_ routine: Routine) {
         if model.startPreview(routine) { sheet = .workout }
     }
+
+    private func startSession(_ versionID: UUID, _ scheduleID: UUID?) {
+        if model.startSession(versionID: versionID, scheduleID: scheduleID) { sheet = .workout }
+    }
 }
 
 private struct WeightSheet: View {
     let model: TrainingModel
     let date: String
     let unit: WeightUnit
+    let sampleMode: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var entry = ""
     @FocusState private var focused: Bool
@@ -233,7 +262,10 @@ private struct WeightSheet: View {
                         .accessibilityLabel("Bodyweight in \(unit.name.lowercased())")
                         .frame(minHeight: 44)
                     Button {
-                        if let kilograms = unit.kilograms(for: entry), model.recordBodyweight(kilograms, on: date) {
+                        let existing = model.bodyweight(on: date, sampleMode: sampleMode)
+                        let kilograms = existing.flatMap { unit.display($0, fractionDigits: 1...1) == entry ? $0 : nil }
+                            ?? unit.kilograms(for: entry)
+                        if let kilograms, model.recordBodyweight(kilograms, on: date, sampleMode: sampleMode) {
                             model.storageError = nil
                             dismiss()
                         }
@@ -242,7 +274,8 @@ private struct WeightSheet: View {
                     }
                     .disabled(unit.kilograms(for: entry) == nil)
                 } header: {
-                    Text(SampleDate.label(date, .dateTime.weekday(.wide).month(.wide).day()))
+                    let day = SampleDate.label(date, .dateTime.weekday(.wide).month(.wide).day())
+                    Text(sampleMode ? "Sample entry · \(day)" : day)
                 } footer: {
                     if let error = model.storageError { Text(error).foregroundStyle(Palette.red) }
                 }
@@ -252,22 +285,40 @@ private struct WeightSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .tint(Palette.purple)
             .onAppear {
-                if let kilograms = model.state.bodyweightByDay[date] { entry = unit.display(kilograms, fractionDigits: 1...1) }
+                if let kilograms = model.bodyweight(on: date, sampleMode: sampleMode) {
+                    entry = unit.display(kilograms, fractionDigits: 1...1)
+                }
                 focused = true
             }
         }
     }
 }
 
-private struct WorkoutPreviewSheet: View {
+private struct WorkoutSheet: View {
     let model: TrainingModel
+    let unit: WeightUnit
+    let sampleMode: Bool
     let browse: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             List {
-                if let routine = model.activeRoutine {
+                if !sampleMode, let session = model.records.activeSession {
+                    Section("Saved session plan") {
+                        ForEach(session.routineSnapshot.exercises) { exercise in
+                            LabeledContent(exercise.variant.exercise.name, value: exercise.summary(unit: unit))
+                        }
+                    }
+                    Section {
+                        Button("Finish workout") {
+                            if model.finishSession(session.id) { dismiss() }
+                        }
+                        .frame(minHeight: 44)
+                    } footer: {
+                        if let error = model.storageError { Text(error).foregroundStyle(Palette.red) }
+                    }
+                } else if sampleMode, let routine = model.activeRoutine {
                     Section("Active workout preview · Sample routine") {
                         ForEach(routine.exercises) { exercise in
                             LabeledContent(exercise.name, value: exercise.prescription)
@@ -287,11 +338,11 @@ private struct WorkoutPreviewSheet: View {
                             .foregroundStyle(model.storageError == nil ? Palette.muted : Palette.red)
                     }
                 } else {
-                    Text("Choose a scheduled workout or open a routine to start a workout preview.")
+                    Text(sampleMode ? "Choose a sample routine to start a workout preview." : "Choose a saved routine to start a workout.")
                     Button("Browse routines", action: browse).frame(minHeight: 44)
                 }
             }
-            .navigationTitle(model.activeRoutine?.name ?? "Workout log")
+            .navigationTitle((sampleMode ? model.activeRoutine?.name : model.records.activeSession?.routineSnapshot.name) ?? "Workout log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .tint(Palette.purple)

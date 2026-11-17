@@ -156,8 +156,8 @@ struct SettingsScreen: View {
         }
         .padding(14).surface()
         VStack(alignment: .leading, spacing: 10) {
-            title("About this preview", icon: "info.circle")
-            Text("Schedules, routines and history show sample data. Appearance, weight entries and the active workout preview are stored on this iPhone.")
+            title("Local data", icon: "info.circle")
+            Text("Your training data is stored on this iPhone. Sample data has its own preview and storage.")
                 .font(.subheadline).foregroundStyle(Palette.muted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

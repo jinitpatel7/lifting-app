@@ -75,67 +75,9 @@ struct ProgressPoint: Decodable, Identifiable {
     let weightKg: Double
 }
 
-enum WeightUnit: String, CaseIterable, Identifiable {
-    case kg, lb
-
-    var id: Self { self }
-    var name: String { self == .kg ? "Kilograms" : "Pounds" }
-    var kilogramsPerUnit: Double { self == .kg ? 1 : 0.45359237 }
-
-    func display(_ kilograms: Double, fractionDigits: ClosedRange<Int> = 0...1) -> String {
-        (kilograms / kilogramsPerUnit).formatted(.number.precision(.fractionLength(fractionDigits)))
-    }
-
-    func kilograms(for input: String) -> Double? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let value = try? Double(trimmed, format: .number, lenient: false) else { return nil }
-        let kilograms = value * kilogramsPerUnit
-        guard kilograms.isFinite, kilograms > 0, kilograms <= 700 else { return nil }
-        return kilograms
-    }
-}
-
 enum SampleDate {
-    private static var isoStyle: Date.ISO8601FormatStyle {
-        Date.ISO8601FormatStyle().year().month().day().dateSeparator(.dash)
-    }
-
     static func label(_ key: String, _ style: Date.FormatStyle) -> String {
-        guard let date = try? isoStyle.parse(key) else { return key }
-        var utcStyle = style
-        utcStyle.timeZone = .gmt
-        return date.formatted(utcStyle)
-    }
-}
-
-struct TrainingState: Codable {
-    var bodyweightByDay: [String: Double] = [:]
-    var activeRoutineID: String?
-}
-
-struct OnDeviceTrainingStore {
-    private let fileManager = FileManager.default
-
-    private func fileURL(createDirectory: Bool) throws -> URL {
-        let support = try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                          appropriateFor: nil, create: createDirectory)
-        let folder = support.appendingPathComponent("Setline", isDirectory: true)
-        if createDirectory {
-            try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
-        }
-        return folder.appendingPathComponent("TrainingState-v1.json")
-    }
-
-    func load() throws -> TrainingState {
-        do {
-            return try JSONDecoder().decode(TrainingState.self, from: Data(contentsOf: fileURL(createDirectory: false)))
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
-            return TrainingState()
-        }
-    }
-
-    func save(_ state: TrainingState) throws {
-        try JSONEncoder().encode(state).write(to: fileURL(createDirectory: true), options: .atomic)
+        WorkoutDate(key)?.formatted(style) ?? key
     }
 }
 
@@ -143,52 +85,105 @@ struct OnDeviceTrainingStore {
 @Observable
 final class TrainingModel {
     let sample = SampleData.load()
-    private let store = OnDeviceTrainingStore()
-    private(set) var state = TrainingState()
-    private var storageReadable = true
+    private let files = try? TrainingFiles.applicationSupport()
+    private(set) var records = TrainingRecords()
+    private(set) var preview = SamplePreviewState()
+    private var repository: TrainingRepository?
+    private var userLoadError: String?
+    private var sampleLoadError: String?
     var storageError: String?
 
     init() {
+        guard let files else {
+            userLoadError = "Setline couldn’t find its local storage."
+            sampleLoadError = userLoadError
+            storageError = userLoadError
+            return
+        }
         do {
-            state = try store.load()
+            let repository = try TrainingRepository(files: files)
+            self.repository = repository
+            records = repository.records
         } catch {
-            storageReadable = false
-            storageError = "Setline couldn’t read its local data. Reopen the app to try again."
+            userLoadError = (error as? TrainingDataError)?.localizedDescription
+                ?? "Setline couldn’t read its local data. Reopen the app to try again."
+            storageError = userLoadError
+        }
+        do {
+            preview = try files.loadSamplePreview()
+        } catch {
+            sampleLoadError = "Setline couldn’t read the saved sample preview."
         }
     }
 
-    var activeRoutine: Routine? { sample?.routine(state.activeRoutineID) }
+    var activeRoutine: Routine? { sample?.routine(preview.activeRoutineID) }
 
-    func recordBodyweight(_ kilograms: Double, on day: String) -> Bool {
-        var next = state
-        next.bodyweightByDay[day] = kilograms
-        return save(next)
+    func bodyweight(on day: String, sampleMode: Bool) -> Double? {
+        if sampleMode { return preview.bodyweightByDay[day] }
+        return WorkoutDate(day).flatMap { records.bodyweight(on: $0)?.mass.kilograms }
+    }
+
+    func recordBodyweight(_ kilograms: Double, on day: String, sampleMode: Bool) -> Bool {
+        guard let date = WorkoutDate(day), let mass = Mass(kilograms), kilograms > 0 else { return false }
+        if sampleMode {
+            var next = preview
+            next.bodyweightByDay[day] = kilograms
+            return savePreview(next)
+        }
+        return updateUserData { try $0.saveBodyweight(mass, on: date) }
     }
 
     func startPreview(_ routine: Routine) -> Bool {
         if activeRoutine != nil { return true }
-        var next = state
+        var next = preview
         next.activeRoutineID = routine.id
-        return save(next)
+        return savePreview(next)
     }
 
     func endPreview() -> Bool {
-        var next = state
+        var next = preview
         next.activeRoutineID = nil
-        return save(next)
+        return savePreview(next)
     }
 
-    private func save(_ next: TrainingState) -> Bool {
-        guard storageReadable else {
-            storageError = "Setline couldn’t read its local data. Reopen the app to try again."
+    func startSession(versionID: UUID, scheduleID: UUID?) -> Bool {
+        if records.activeSession != nil { return true }
+        return updateUserData { _ = try $0.startSession(versionID: versionID, scheduleID: scheduleID) }
+    }
+
+    func finishSession(_ id: UUID) -> Bool {
+        updateUserData { try $0.finishSession(id) }
+    }
+
+    private func updateUserData(_ update: (TrainingRepository) throws -> Void) -> Bool {
+        guard let repository else {
+            storageError = userLoadError
             return false
         }
         do {
-            try store.save(next)
-            state = next
+            try update(repository)
+            records = repository.records
+            storageError = nil
             return true
         } catch {
-            storageError = "Setline couldn’t save your change on this device. Try again."
+            storageError = (error as? TrainingDataError)?.localizedDescription
+                ?? "Setline couldn’t save your change on this device. Try again."
+            return false
+        }
+    }
+
+    private func savePreview(_ next: SamplePreviewState) -> Bool {
+        guard let files, sampleLoadError == nil else {
+            storageError = sampleLoadError
+            return false
+        }
+        do {
+            try files.saveSamplePreview(next)
+            preview = next
+            storageError = nil
+            return true
+        } catch {
+            storageError = "Setline couldn’t save the sample preview. Try again."
             return false
         }
     }

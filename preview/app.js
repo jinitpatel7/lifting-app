@@ -1,3 +1,5 @@
+import { createBrowserStore, kilogramsPerPound, localDayKey } from './storage.js';
+
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
   today: '<rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M7.5 3v4m9-4v4M3 9.5h18m-12 5h6m-3-3v6"/>',
@@ -31,35 +33,44 @@ const dock = document.querySelector('#dock');
 const dialog = document.querySelector('#dialog');
 const announcement = document.querySelector('#announcement');
 const systemDark = matchMedia('(prefers-color-scheme: dark)');
-const storageKey = 'setline-preview-v1';
+const store = createBrowserStore({
+  getItem: key => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
+});
 const tabs = [
   ['today', 'Today', 'Today / Log'], ['routines', 'Routines', 'Routines'],
   ['history', 'History', 'History / Progress'], ['settings', 'Settings', 'Settings'],
 ];
 
-function loadPreferences() {
-  try { return JSON.parse(localStorage.getItem(storageKey)) ?? {}; }
-  catch { return {}; }
+function readStorage(load, fallback) {
+  try { return load(); }
+  catch { return fallback; }
 }
 
-const saved = loadPreferences();
+const saved = readStorage(store.loadPreferences, {});
 const state = {
   tab: tabs.some(([id]) => `#${id}` === location.hash) ? location.hash.slice(1) : 'today',
   appearance: saved.appearance ?? 'system',
   opaque: saved.opaque === true,
   unit: saved.unit === 'lb' ? 'lb' : 'kg',
-  weights: saved.weights ?? {},
-  active: saved.active ?? null,
-  date: null, routine: null, history: 'progress', expanded: new Set(),
+  user: readStorage(store.loadUser, { entries: {} }),
+  preview: readStorage(store.loadSample, { weights: {}, active: null }),
+  sampleMode: false,
+  date: localDayKey(), routine: null, history: 'progress', expanded: new Set(),
 };
 
 const response = await fetch(asset('SampleData.json')).catch(() => null);
 const sample = response?.ok ? await response.json().catch(() => null) : null;
 
-function save() {
-  const { appearance, opaque, unit, weights, active } = state;
-  try { localStorage.setItem(storageKey, JSON.stringify({ appearance, opaque, unit, weights, active })); }
+function savePreferences() {
+  const { appearance, opaque, unit } = state;
+  try { store.savePreferences({ appearance, opaque, unit }); }
   catch { announce('Browser storage is unavailable. Changes are available for this visit.'); }
+}
+
+function savePreview(next) {
+  store.saveSample(next);
+  state.preview = next;
 }
 
 const systemTheme = () => systemDark.matches ? 'dark' : 'light';
@@ -74,9 +85,13 @@ const day = key => new Date(`${key}T12:00:00Z`);
 const dateLabel = (key, options) => new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' }).format(day(key));
 const shortDate = key => dateLabel(key, { month: 'short', day: 'numeric' });
 const longDate = key => dateLabel(key, { weekday: 'long', month: 'long', day: 'numeric' });
-const routineFor = id => sample.routines.find(routine => routine.id === id);
-const planned = () => routineFor(sample.week.find(entry => entry.date === state.date)?.routineID);
-const displayWeight = (kg, digits = 1) => new Intl.NumberFormat('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits === 1 ? 1 : 0 }).format(kg / (state.unit === 'lb' ? 0.45359237 : 1));
+const routineFor = id => sample?.routines.find(routine => routine.id === id);
+const planned = () => state.sampleMode ? routineFor(sample.week.find(entry => entry.date === state.date)?.routineID) : null;
+const today = () => state.sampleMode ? sample.today : localDayKey();
+const activePreview = () => state.sampleMode ? routineFor(state.preview.active?.routineID) : null;
+const bodyweightValue = () => state.sampleMode ? state.preview.weights[state.date] : state.user.entries[state.date]?.kilograms;
+const kilogramsPerUnit = () => state.unit === 'lb' ? kilogramsPerPound : 1;
+const displayWeight = (kg, digits = 1) => new Intl.NumberFormat('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits === 1 ? 1 : 0 }).format(kg / kilogramsPerUnit());
 const displayLoad = kg => `${displayWeight(kg, Number.isInteger(kg) && state.unit === 'kg' ? 0 : 1)} ${state.unit}`;
 const announce = message => { announcement.textContent = message; };
 
@@ -89,7 +104,10 @@ function renderHeader() {
         <span>Setline<span class="brand-dot">.</span></span>
       </a>
       <div class="top-actions">
-        <span class="sample"><span></span>Sample data</span>
+        ${sample ? `<button type="button" class="sample" data-action="sample-mode"
+          aria-label="${state.sampleMode ? 'Sample data. Return to your data' : 'View sample data'}">
+          <span></span>${state.sampleMode ? 'Sample data' : 'View sample data'}
+        </button>` : ''}
         <button type="button" class="icon-button theme-button" data-action="theme"
           aria-label="Switch to ${destination} appearance" title="Switch to ${destination} appearance">
           ${icon(theme() === 'dark' ? 'sun' : 'moon', 19)}
@@ -103,17 +121,25 @@ function sectionTitle(title, subtitle) {
 }
 
 function weekView() {
-  return `<section class="surface week" aria-labelledby="week-title"><div class="section-top"><h2 id="week-title">This week</h2><span class="meta">${icon('calendar', 15)} Nov 16 – 22</span></div><div class="days">${sample.week.map(({ date, routineID }) => {
+  const monday = day(today());
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  const week = state.sampleMode ? sample.week : Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setUTCDate(date.getUTCDate() + index);
+    return { date: date.toISOString().slice(0, 10) };
+  });
+  return `<section class="surface week" aria-labelledby="week-title"><div class="section-top"><h2 id="week-title">This week</h2><span class="meta">${icon('calendar', 15)} ${shortDate(week[0].date)} – ${shortDate(week.at(-1).date)}</span></div><div class="days">${week.map(({ date, routineID }) => {
     const routine = routineFor(routineID);
     const selected = date === state.date;
-    const isToday = date === sample.today;
-    return `<button class="day${selected ? ' selected' : ''}" type="button" data-action="date" data-value="${date}" aria-pressed="${selected}" ${isToday ? 'aria-current="date"' : ''} aria-label="${longDate(date)}, ${routine?.name ?? 'rest day'}"><span class="day-name">${dateLabel(date, { weekday: 'short' })}</span><span class="day-number">${day(date).getUTCDate()}</span><span class="day-dot${routine ? ' scheduled' : ''}"></span></button>`;
+    const isToday = date === today();
+    const description = routine?.name ?? (state.sampleMode ? 'rest day' : 'no workout scheduled');
+    return `<button class="day${selected ? ' selected' : ''}" type="button" data-action="date" data-value="${date}" aria-pressed="${selected}" ${isToday ? 'aria-current="date"' : ''} aria-label="${longDate(date)}, ${description}"><span class="day-name">${dateLabel(date, { weekday: 'short' })}</span><span class="day-number">${day(date).getUTCDate()}</span><span class="day-dot${routine ? ' scheduled' : ''}"></span></button>`;
   }).join('')}</div></section>`;
 }
 
 function workoutHero(routine, label = 'Planned workout') {
-  if (!routine) return `<section class="surface rest-card"><span class="tile-icon">${icon('calendar', 22)}</span><p class="eyebrow">SCHEDULE</p><h2>Rest day</h2><p>No sample workout is scheduled for ${shortDate(state.date)}.</p><a class="secondary" href="#routines">View routines ${icon('arrow', 17)}</a></section>`;
-  const isActive = Boolean(state.active);
+  if (!routine) return `<section class="surface rest-card"><span class="tile-icon">${icon('calendar', 22)}</span><p class="eyebrow">SCHEDULE</p><h2>${state.sampleMode ? 'Rest day' : 'No workout scheduled'}</h2><p>${shortDate(state.date)}</p><a class="secondary" href="#routines">View routines ${icon('arrow', 17)}</a></section>`;
+  const isActive = Boolean(activePreview());
   const artwork = routine.id === 'upper-a'
     ? `<img class="hero-image" src="${asset('workout-hero.png')}" alt="">`
     : `<div class="hero-symbol">${icon('dumbbell', 180)}</div>`;
@@ -160,12 +186,12 @@ function muscleMap(routine) {
 }
 
 function bodyweight() {
-  const kg = state.weights[state.date];
+  const kg = bodyweightValue();
   return `
     <section class="surface weight-card" aria-labelledby="weight-title">
       <div class="section-top">
         <div class="section-label"><span class="tile-icon small">${icon('scale', 18)}</span><h2 id="weight-title">Bodyweight</h2></div>
-        <span class="meta">${state.date === sample.today ? 'Today' : shortDate(state.date)}</span>
+        <span class="meta">${state.date === today() ? 'Today' : shortDate(state.date)}</span>
       </div>
       <div class="weight-content">
         <div>
@@ -215,10 +241,15 @@ function exercises(routine) {
 
 function todayPage() {
   const routine = planned();
-  return `${sectionTitle('Today', longDate(sample.today))}${weekView()}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine)}</div><div class="dashboard-side">${muscleMap(routine)}${bodyweight()}</div>${routine ? `<div class="dashboard-exercises">${exercises(routine)}</div>` : ''}</div>`;
+  return `${sectionTitle('Today', longDate(today()))}${weekView()}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine)}</div><div class="dashboard-side">${muscleMap(routine)}${bodyweight()}</div>${routine ? `<div class="dashboard-exercises">${exercises(routine)}</div>` : ''}</div>`;
+}
+
+function emptyCard(title, copy, symbol) {
+  return `<section class="surface settings-card"><div class="section-label"><span class="tile-icon small">${icon(symbol, 19)}</span><h2>${title}</h2></div><p class="chart-subtitle">${copy}</p></section>`;
 }
 
 function routinesPage() {
+  if (!state.sampleMode) return `${sectionTitle('Routines', 'Your training library')}${emptyCard('No saved routines', 'Your routines will appear here.', 'routines')}`;
   const routine = routineFor(state.routine);
   if (routine) return `<button type="button" class="back-button" data-action="routine" data-value="">${icon('arrow', 17)} All routines</button>${sectionTitle('Routines')}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine, 'Sample routine')}</div><div class="dashboard-side">${muscleMap(routine)}</div><div class="dashboard-exercises">${exercises(routine)}</div></div>`;
   return `${sectionTitle('Routines', 'Training library')}<p class="screen-description">Sample routines show how your own workouts will appear.</p><div class="routine-grid">${sample.routines.map((item, index) => `<button class="surface routine-card" type="button" data-action="routine" data-value="${item.id}"><span class="tile-icon ${index ? 'coral' : ''}">${icon('dumbbell', 24)}</span><span class="routine-description"><strong>${item.name}</strong><span>${item.exercises.length} exercises · ${item.minutes} min</span><span>${item.primaryMuscles}</span></span><span class="round-arrow">${icon('chevron', 17)}</span></button>`).join('')}</div>`;
@@ -233,7 +264,23 @@ function chart() {
 }
 
 function historyPage() {
-  return `${sectionTitle('History', 'Training progress')}<div class="segmented history-switch" role="group" aria-label="History view"><button data-action="history" data-value="progress" aria-pressed="${state.history === 'progress'}">Progress</button><button data-action="history" data-value="sessions" aria-pressed="${state.history === 'sessions'}">Sessions</button></div>${state.history === 'progress' ? chart() : `<section class="stack session-list" aria-label="Sample sessions">${sample.history.map(entry => `<article class="surface session"><span class="tile-icon">${icon('dumbbell', 21)}</span><div><h2>${routineFor(entry.routineID).name}</h2><p>${entry.sets} sets · ${entry.minutes} min</p></div><span class="meta">${shortDate(entry.date)}</span></article>`).join('')}</section>`}`;
+  const heading = sectionTitle('History', 'Training progress');
+  const picker = `<div class="history-switch">${segment('history', [['progress', 'Progress'], ['sessions', 'Sessions']], state.history)}</div>`;
+  const progress = state.history === 'progress';
+  if (!state.sampleMode) {
+    if (!progress) return heading + picker + emptyCard('No completed workouts', 'Finished workouts will appear here.', 'clock');
+    const bodyweight = Object.values(state.user.entries).sort((a, b) => b.day.localeCompare(a.day));
+    const entries = bodyweight.length ? `
+      <section class="surface settings-card" aria-labelledby="bodyweight-history">
+        <div class="section-label"><span class="tile-icon small">${icon('scale', 18)}</span><h2 id="bodyweight-history">Bodyweight history</h2></div>
+        <ul class="active-exercises">${bodyweight.map(entry => `
+          <li><time datetime="${entry.day}">${dateLabel(entry.day, { year: 'numeric', month: 'short', day: 'numeric' })}</time>
+          <strong>${displayWeight(entry.kilograms)} ${state.unit}</strong></li>`).join('')}</ul>
+      </section>` : '';
+    return heading + picker + `<div class="stack session-list">${emptyCard('Recorded sets', 'Results from completed workouts will appear here.', 'history')}${entries}</div>`;
+  }
+  const content = progress ? chart() : `<section class="stack session-list" aria-label="Sample sessions">${sample.history.map(entry => `<article class="surface session"><span class="tile-icon">${icon('dumbbell', 21)}</span><div><h2>${routineFor(entry.routineID).name}</h2><p>${entry.sets} sets · ${entry.minutes} min</p></div><span class="meta">${shortDate(entry.date)}</span></article>`).join('')}</section>`;
+  return heading + picker + content;
 }
 
 function segment(group, values, selected) {
@@ -241,11 +288,29 @@ function segment(group, values, selected) {
 }
 
 function settingsPage() {
-  return `${sectionTitle('Settings', 'Preferences')}<div class="settings-grid"><section class="surface settings-card"><div class="section-label"><span class="tile-icon small">${icon('sun', 19)}</span><h2>Appearance</h2></div>${segment('appearance', [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']], state.appearance)}<div class="setting-toggle"><div><strong id="transparency-label">Reduce transparency</strong><p>Use a solid background for navigation.</p></div><button class="switch" type="button" role="switch" aria-checked="${state.opaque}" aria-labelledby="transparency-label" data-action="transparency"><span></span></button></div></section><section class="surface settings-card"><div class="section-label"><span class="tile-icon small">${icon('scale', 19)}</span><h2>Weight units</h2></div>${segment('unit', [['kg', 'Kilograms'], ['lb', 'Pounds']], state.unit)}</section><section class="surface settings-card settings-note"><div class="section-label"><span class="tile-icon small">${icon('info', 19)}</span><h2>About this preview</h2></div><p>Schedules, routines and history show sample data. Appearance, weight entries and the active workout preview are stored in this browser.</p></section></div>`;
+  return `${sectionTitle('Settings', 'Preferences')}
+    <div class="settings-grid">
+      <section class="surface settings-card">
+        <div class="section-label"><span class="tile-icon small">${icon('sun', 19)}</span><h2>Appearance</h2></div>
+        ${segment('appearance', [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']], state.appearance)}
+        <div class="setting-toggle">
+          <div><strong id="transparency-label">Reduce transparency</strong><p>Use a solid background for navigation.</p></div>
+          <button class="switch" type="button" role="switch" aria-checked="${state.opaque}" aria-labelledby="transparency-label" data-action="transparency"><span></span></button>
+        </div>
+      </section>
+      <section class="surface settings-card">
+        <div class="section-label"><span class="tile-icon small">${icon('scale', 19)}</span><h2>Weight units</h2></div>
+        ${segment('unit', [['kg', 'Kilograms'], ['lb', 'Pounds']], state.unit)}
+      </section>
+      <section class="surface settings-card settings-note">
+        <div class="section-label"><span class="tile-icon small">${icon('info', 19)}</span><h2>Local data</h2></div>
+        <p>Bodyweight entries and preferences are saved in this browser. Sample data has its own preview and storage.</p>
+      </section>
+    </div>`;
 }
 
 function renderDock() {
-  const routine = routineFor(state.active?.routineID);
+  const routine = activePreview();
   dock.innerHTML = `<div class="dock-inner"><button type="button" class="active-bar" data-action="active"><span class="active-icon">${icon('dumbbell', 20)}</span><span class="active-text"><strong>${routine?.name ?? 'Workout log'}</strong><span>${routine ? '<span class="live-dot"></span>Active preview' : 'No active workout'}</span></span><span class="active-arrow">${icon('chevron', 18)}</span></button><nav class="tab-bar" aria-label="Main navigation">${tabs.map(([id, title, label]) => `<a href="#${id}" ${state.tab === id ? 'aria-current="page"' : ''} aria-label="${label}">${icon(id, 21)}<span>${title}</span></a>`).join('')}</nav></div>`;
 }
 
@@ -271,15 +336,16 @@ function showDialog(type, title, body, trigger) {
 }
 
 function showWeight(trigger) {
-  const value = state.weights[state.date];
-  const entered = value ? Math.round(value / (state.unit === 'lb' ? 0.45359237 : 1) * 10) / 10 : '';
-  showDialog('weight', 'Log bodyweight', `<p class="dialog-description">${longDate(state.date)}</p><form id="weight-form"><label for="weight-input">Bodyweight (${state.unit})</label><input id="weight-input" type="number" inputmode="decimal" name="weight" required min="0.1" step="0.1" max="${state.unit === 'kg' ? 700 : 1543.2}" value="${entered}" autofocus><button class="primary" type="submit">${icon('check', 19)} Save entry</button></form>`, trigger);
+  const value = bodyweightValue();
+  const entered = value ? Math.round(value / kilogramsPerUnit() * 10) / 10 : '';
+  showDialog('weight', 'Log bodyweight', `<p class="dialog-description">${state.sampleMode ? 'Sample entry · ' : ''}${longDate(state.date)}</p><form id="weight-form"><label for="weight-input">Bodyweight (${state.unit})</label><input id="weight-input" type="number" inputmode="decimal" name="weight" required min="0.1" step="0.1" value="${entered}" autofocus><div id="weight-error" role="alert"></div><button class="primary" type="submit">${icon('check', 19)} Save entry</button></form>`, trigger);
 }
 
 function showSession(trigger) {
-  const routine = routineFor(state.active?.routineID);
+  const routine = activePreview();
   if (!routine) {
-    showDialog('idle', 'Workout log', '<p class="dialog-description">Choose a scheduled workout or open a routine to start a workout preview.</p><button class="primary" type="button" data-action="choose-routine">Browse routines</button>', trigger);
+    const hint = state.sampleMode ? 'Choose a sample routine to start a workout preview.' : 'Open a saved routine in the iPhone app to start a workout.';
+    showDialog('idle', 'Workout log', `<p class="dialog-description">${hint}</p><button class="primary" type="button" data-action="choose-routine">Browse routines</button>`, trigger);
     return;
   }
   showDialog('active', routine.name, `<p class="dialog-description">Active workout preview · Sample routine</p><ul class="active-exercises">${routine.exercises.map(exercise => `<li><strong>${exercise.name}</strong><span>${exercise.sets} × ${exercise.reps} reps</span></li>`).join('')}</ul><p class="dialog-description">Set logging and session history will be available in a later stage.</p><button class="secondary end-button" type="button" data-action="end">End workout preview</button>`, trigger);
@@ -293,73 +359,99 @@ function selectTab(tab, focus = false) {
   render({ scroll: true, focus: focus ? '#main' : null });
 }
 
-if (!sample) {
-  main.innerHTML = '<h1>Sample data is unavailable</h1><p>Reload this page to try again.</p>';
-} else {
-  state.date = sample.today;
-  if (!routineFor(state.active?.routineID)) state.active = null;
-  render();
+render();
 
-  systemDark.addEventListener('change', () => { applyAppearance(); renderHeader(); });
-  window.addEventListener('hashchange', () => selectTab(location.hash.slice(1) || 'today'));
-  main.addEventListener('toggle', event => {
-    if (!event.target.matches('details[data-exercise]')) return;
-    const { open, dataset: { exercise } } = event.target;
-    if (open) state.expanded.add(exercise);
-    else state.expanded.delete(exercise);
-  }, true);
+systemDark.addEventListener('change', () => { applyAppearance(); renderHeader(); });
+window.addEventListener('hashchange', () => selectTab(location.hash.slice(1) || 'today'));
+main.addEventListener('toggle', event => {
+  if (!event.target.matches('details[data-exercise]')) return;
+  const { open, dataset: { exercise } } = event.target;
+  if (open) state.expanded.add(exercise);
+  else state.expanded.delete(exercise);
+}, true);
 
-  document.addEventListener('click', event => {
-    const link = event.target.closest('a[href]');
-    const tab = link?.getAttribute('href').slice(1);
-    if (tabs.some(([id]) => id === tab) && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
-      event.preventDefault();
-      selectTab(tab, true);
-      return;
-    }
-
-    const target = event.target.closest('button[data-action]');
-    if (!target) return;
-    const { action, value } = target.dataset;
-    const focus = `[data-action="${action}"]${value === undefined ? '' : `[data-value="${value}"]`}`;
-    switch (action) {
-      case 'theme': state.appearance = theme() === 'dark' ? 'light' : 'dark'; save(); render({ focus }); break;
-      case 'appearance': state.appearance = value; save(); render({ focus }); break;
-      case 'transparency': state.opaque = !state.opaque; save(); render({ focus }); break;
-      case 'unit': state.unit = value; save(); render({ focus }); break;
-      case 'date': state.date = value; render({ focus }); break;
-      case 'routine': state.routine = value || null; render({ scroll: true, focus: '#main' }); break;
-      case 'history': state.history = value; render({ focus }); break;
-      case 'weight': showWeight(focus); break;
-      case 'log':
-        if (!state.active) { state.active = { routineID: value }; save(); render(); }
-        showSession(focus);
-        break;
-      case 'active': showSession(focus); break;
-      case 'close': dialog.close(); break;
-      case 'choose-routine': dialogTrigger = null; dialog.close(); selectTab('routines', true); break;
-      case 'end': state.active = null; save(); dialog.close(); render(); announce('Workout preview ended.'); break;
-    }
-  });
-
-  dialog.addEventListener('close', () => {
-    const trigger = dialogTrigger;
-    dialogAction = null;
-    dialogTrigger = null;
-    if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
-  });
-  dialog.addEventListener('submit', event => {
-    if (dialogAction !== 'weight') return;
+document.addEventListener('click', event => {
+  const link = event.target.closest('a[href]');
+  const tab = link?.getAttribute('href').slice(1);
+  if (tabs.some(([id]) => id === tab) && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
     event.preventDefault();
-    const input = dialog.querySelector('#weight-input');
-    if (!input.reportValidity()) return;
-    const value = input.valueAsNumber;
-    if (Number.isFinite(value) && value > 0) {
-      state.weights[state.date] = value * (state.unit === 'lb' ? 0.45359237 : 1);
-      save();
-      dialog.close();
-      render();
-      announce('Bodyweight saved.');
+    selectTab(tab, true);
+    return;
+  }
+
+  const target = event.target.closest('button[data-action]');
+  if (!target) return;
+  const { action, value } = target.dataset;
+  const focus = `[data-action="${action}"]${value === undefined ? '' : `[data-value="${value}"]`}`;
+  switch (action) {
+    case 'theme': state.appearance = theme() === 'dark' ? 'light' : 'dark'; savePreferences(); render({ focus }); break;
+    case 'appearance': state.appearance = value; savePreferences(); render({ focus }); break;
+    case 'transparency': state.opaque = !state.opaque; savePreferences(); render({ focus }); break;
+    case 'unit': state.unit = value; savePreferences(); render({ focus }); break;
+    case 'date': state.date = value; render({ focus }); break;
+    case 'sample-mode':
+      state.sampleMode = !state.sampleMode;
+      state.date = today();
+      state.routine = null;
+      state.history = 'progress';
+      render({ scroll: true, focus });
+      break;
+    case 'routine': state.routine = value || null; render({ scroll: true, focus: '#main' }); break;
+    case 'history': state.history = value; render({ focus }); break;
+    case 'weight': showWeight(focus); break;
+    case 'log':
+      try {
+        if (!activePreview()) {
+          savePreview({ ...state.preview, active: { routineID: value } });
+          render();
+        }
+        showSession(focus);
+      } catch {
+        showDialog('error', 'Sample preview', '<p class="dialog-description">The sample workout could not be saved in this browser.</p>', focus);
+      }
+      break;
+    case 'active': showSession(focus); break;
+    case 'close': dialog.close(); break;
+    case 'choose-routine': dialogTrigger = null; dialog.close(); selectTab('routines', true); break;
+    case 'end':
+      try {
+        savePreview({ ...state.preview, active: null });
+        dialog.close();
+        render();
+        announce('Workout preview ended.');
+      } catch {
+        showDialog('error', 'Sample preview', '<p class="dialog-description">The sample workout could not be ended in this browser.</p>', dialogTrigger);
+      }
+      break;
+  }
+});
+
+dialog.addEventListener('close', () => {
+  const trigger = dialogTrigger;
+  dialogAction = null;
+  dialogTrigger = null;
+  if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
+});
+dialog.addEventListener('submit', event => {
+  if (dialogAction !== 'weight') return;
+  event.preventDefault();
+  const input = dialog.querySelector('#weight-input');
+  if (!input.reportValidity()) return;
+  const value = input.valueAsNumber;
+  if (!Number.isFinite(value) || value <= 0) return;
+  const existing = bodyweightValue();
+  const kilograms = existing && Math.round(existing / kilogramsPerUnit() * 10) / 10 === value
+    ? existing : value * kilogramsPerUnit();
+  try {
+    if (state.sampleMode) {
+      savePreview({ ...state.preview, weights: { ...state.preview.weights, [state.date]: kilograms } });
+    } else {
+      state.user = store.saveWeight(state.date, kilograms);
     }
-  });
-}
+    dialog.close();
+    render();
+    announce('Bodyweight saved.');
+  } catch {
+    dialog.querySelector('#weight-error').textContent = 'Your entry could not be saved in this browser.';
+  }
+});

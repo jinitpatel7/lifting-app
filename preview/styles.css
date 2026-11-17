@@ -79,6 +79,7 @@ main:focus { outline: 0; }
 .top-actions { gap: .75rem; }
 .sample { gap: .45rem; color: var(--accent-strong); background: var(--accent-soft); border: 1px solid var(--border); padding: .45rem .72rem; border-radius: 99rem; font-size: .76rem; font-weight: 690; white-space: nowrap; }
 .sample > span { width: .42rem; height: .42rem; border-radius: 50%; background: var(--accent); }
+.sample { min-height: 2.75rem; }
 .icon-button { display: grid; place-items: center; flex: 0 0 auto; width: 2.75rem; height: 2.75rem; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); color: var(--text); }
 .icon-button:hover { background: var(--accent-soft); color: var(--accent-strong); }
 
@@ -243,6 +244,8 @@ dialog::backdrop { background: rgb(20 15 29 / .58); }
 #weight-form label { font-size: .88rem; font-weight: 690; }
 #weight-input { width: 100%; min-height: 3rem; padding: .55rem .65rem; color: var(--text); background: var(--surface-soft); border: 1px solid var(--border); border-radius: .65rem; }
 #weight-form button { margin-top: .3rem; }
+#weight-error:empty { display: none; }
+#weight-error { color: var(--red); font-size: .85rem; }
 .active-exercises { padding: 0; list-style: none; margin: 0 0 .9rem; }
 .active-exercises li { display: flex; justify-content: space-between; align-items: baseline; gap: .65rem; padding: .7rem .1rem; border-bottom: 1px solid var(--border); font-size: .84rem; }
 .active-exercises li span { flex-shrink: 0; color: var(--muted); }

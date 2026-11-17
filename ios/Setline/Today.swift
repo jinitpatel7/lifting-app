@@ -16,7 +16,9 @@ struct TodayScreen: View {
 
     var body: some View {
         PageHeading(title: "Today", subtitle: SampleDate.label(sample.today, .dateTime.weekday(.wide).month(.wide).day()))
-        weekCard
+        WeekScheduleCard(days: sample.week.map { entry in
+            WeekScheduleCard.Day(date: entry.date, routineName: sample.routine(entry.routineID)?.name)
+        }, selection: day) { selectedDay = $0 }
         if let routine = selectedRoutine {
             WorkoutCard(routine: routine, active: model.activeRoutine != nil) { start(routine) }
             MuscleCard(routine: routine)
@@ -30,7 +32,7 @@ struct TodayScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16).surface()
         }
-        BodyweightCard(value: model.state.bodyweightByDay[day], unit: unit,
+        BodyweightCard(value: model.bodyweight(on: day, sampleMode: true), unit: unit,
                        date: day == sample.today ? "Today" : SampleDate.label(day, .dateTime.month(.abbreviated).day())) {
             editWeight(day)
         }
@@ -38,14 +40,30 @@ struct TodayScreen: View {
             ExerciseList(routine: routine, unit: unit).id(routine.id)
         }
     }
+}
 
-    private var weekCard: some View {
+struct WeekScheduleCard: View {
+    struct Day: Identifiable {
+        var id: String { date }
+        let date: String
+        let routineName: String?
+    }
+
+    let days: [Day]
+    let selection: String
+    let select: (String) -> Void
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 CardHeading(title: "This week")
                 Spacer()
-                Label("Nov 16 – 22", systemImage: "calendar")
-                    .font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+                if let first = days.first, let last = days.last {
+                    let start = SampleDate.label(first.date, .dateTime.month(.abbreviated).day())
+                    let end = SampleDate.label(last.date, .dateTime.month(.abbreviated).day())
+                    Label("\(start) – \(end)", systemImage: "calendar")
+                        .font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+                }
             }
             ViewThatFits(in: .horizontal) {
                 daysRow
@@ -57,17 +75,16 @@ struct TodayScreen: View {
 
     private var daysRow: some View {
         HStack(spacing: 3) {
-            ForEach(sample.week) { entry in
-                let selected = day == entry.date
-                let routine = sample.routine(entry.routineID)
+            ForEach(days) { entry in
+                let selected = selection == entry.date
                 Button {
-                    selectedDay = entry.date
+                    select(entry.date)
                 } label: {
                     VStack(spacing: 3) {
                         Text(SampleDate.label(entry.date, .dateTime.weekday(.abbreviated)))
                             .font(.caption2.weight(.semibold))
                         Text(SampleDate.label(entry.date, .dateTime.day())).font(.subheadline.weight(.bold))
-                        Circle().fill(routine == nil ? .clear : selected ? .white : Palette.purple)
+                        Circle().fill(entry.routineName == nil ? .clear : selected ? .white : Palette.purple)
                             .frame(width: 4, height: 4)
                     }
                     .padding(.vertical, 7)
@@ -76,7 +93,7 @@ struct TodayScreen: View {
                     .background(selected ? Palette.action : Palette.soft, in: RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(SampleDate.label(entry.date, .dateTime.weekday(.wide).month(.wide).day())), \(routine?.name ?? "rest day")")
+                .accessibilityLabel("\(SampleDate.label(entry.date, .dateTime.weekday(.wide).month(.wide).day())), \(entry.routineName ?? "no workout scheduled")")
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
