@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 import UIKit
 
@@ -151,22 +150,7 @@ struct PersonalHistoryScreen: View {
     }
 
     @ViewBuilder private var progress: some View {
-        let trends = WorkoutHistory.trends(model.records.sessions, filter: filter)
-        if trends.isEmpty {
-            PersonalStatus(title: "Recorded loads", symbol: "chart.xyaxis.line") {
-                Text("Logged external loads from finished workouts appear here.").font(.subheadline).foregroundStyle(Palette.muted)
-            }
-        }
-        ForEach(trends) { trend in
-            PersonalStatus(title: trend.entry.variant.exercise.name, symbol: "chart.xyaxis.line") {
-                Text(trend.entry.historyEquipmentName).font(.caption).foregroundStyle(Palette.muted)
-                Text("Heaviest logged load \(unit.display(trend.peak, fractionDigits: 0...2)) \(unit.rawValue)").font(.subheadline.weight(.semibold))
-                Chart(trend.points) { point in
-                    LineMark(x: .value("Date", point.date.localPickerDate), y: .value("Load", point.value / unit.kilogramsPerUnit))
-                    PointMark(x: .value("Date", point.date.localPickerDate), y: .value("Load", point.value / unit.kilogramsPerUnit))
-                }.frame(height: 105).foregroundStyle(Palette.purple)
-            }
-        }
+        AnalyticsProgress(model: model, filter: filter, unit: unit)
         if !model.records.bodyweightEntries.isEmpty {
             PersonalStatus(title: "Bodyweight history", symbol: "scalemass") {
                 ForEach(model.records.bodyweightEntries.sorted { $0.localDate > $1.localDate }) { entry in
@@ -261,6 +245,7 @@ private struct HistorySessionDetails: View {
         if let ended = session.completedAt, session.manualDurationKnown != false {
             Text(session.workoutTimeSummary(at: ended)).font(.caption).foregroundStyle(Palette.muted)
         }
+        HistoryPlanTally(session: session)
         if let notes = session.workoutLog?.notes, !notes.isEmpty { Text(notes).font(.subheadline) }
         HistoryExercises(session: session, unit: unit)
         if revision > 0 {
@@ -268,6 +253,19 @@ private struct HistorySessionDetails: View {
                 .font(.subheadline)
         }
         HistoryPhotos(sessionID: session.id, photos: photos)
+    }
+}
+
+private struct HistoryPlanTally: View {
+    let session: WorkoutSession
+    var exerciseID: UUID? = nil
+
+    var body: some View {
+        let filter = HistoryFilter(exerciseID: exerciseID)
+        let planned = WorkoutAnalytics.plannedCounts(session.routineSnapshot, filter: filter)
+        let performed = WorkoutAnalytics.completedCounts(session, filter: filter)
+        Text("Working sets · \(performed.working) completed · \(planned.working) originally planned").font(.caption).foregroundStyle(Palette.muted)
+        Text("Warm-ups · \(performed.warmUp) completed · \(planned.warmUp) originally planned").font(.caption).foregroundStyle(Palette.muted)
     }
 }
 
@@ -427,6 +425,7 @@ private struct HistoryComparisonSheet: View {
             Text("\(session.localDate.key) · \(versionLabel(session))").font(.caption)
             Text(session.historyStatus.rawValue).font(.caption)
             HistoryMetricsRows(metrics: stats, unit: unit, showDuration: scope.exerciseID == nil).font(.caption)
+            HistoryPlanTally(session: session, exerciseID: scope.exerciseID)
             HistoryExercises(session: session, unit: unit, exerciseID: scope.exerciseID, showPlans: false)
         }.frame(maxWidth: .infinity, alignment: .topLeading).padding(8).surface()
     }

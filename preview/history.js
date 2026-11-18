@@ -3,9 +3,14 @@ import { performedResult, sessionInput, sessionPlan, variantKey, workoutLog } fr
 import { workoutTimes } from './workout-tools.js';
 
 const uuid = () => crypto.randomUUID();
-const loaded = amount => ['weight', 'added'].includes(amount?.kind);
+export const externalLoad = amount => ['weight', 'added'].includes(amount?.kind) && Number.isFinite(amount.value) ? amount.value : null;
 export const equipmentKey = row => [row.exercise.equipment ?? 'bodyweight', row.equipmentLabel || ''].join('|');
 export const equipmentName = row => row.equipmentLabel || (row.exercise.equipment ? row.exercise.equipment[0].toUpperCase() + row.exercise.equipment.slice(1) : 'Bodyweight');
+export const isStation = row => ['machine', 'cable'].includes(row.exercise.equipment);
+export const unlinkedStation = row => isStation(row) && !row.equipmentLabel?.trim();
+export const historyVariantKey = (row, sessionID) => unlinkedStation(row) ? JSON.stringify([variantKey(row), sessionID, row.id]) : variantKey(row);
+export const matchesHistoryRow = (row, filter) => (!filter.exercise || row.exercise.id === filter.exercise) &&
+  (!filter.equipment || equipmentKey(row) === filter.equipment);
 export const sessionsByDate = sessions => [...sessions].sort((a, b) =>
   dayOf(b).localeCompare(dayOf(a)) || b.startedAt.localeCompare(a.startedAt));
 export const dayOf = session => session.localDate ?? localDayKey(new Date(session.startedAt));
@@ -38,26 +43,35 @@ export function historyFilter(sessions, filter) {
     if ((filter.from && date < filter.from) || (filter.to && date > filter.to) ||
         (filter.routine && filter.routine !== session.snapshot.routineID)) return false;
     if (!filter.exercise && !filter.equipment) return true;
-    return sessionPlan(session).exercises.some(row => (!filter.exercise || row.exercise.id === filter.exercise) &&
-      (!filter.equipment || equipmentKey(row) === filter.equipment));
+    return sessionPlan(session).exercises.some(row => matchesHistoryRow(row, filter));
   });
 }
 
-function setVolume(set, row) {
-  if (!loaded(set.amount) || set.reps == null) return null;
-  const left = set.amount.value;
-  const right = loaded(set.rightAmount) ? set.rightAmount.value : left;
-  if (set.rightReps != null) return left * set.reps + right * set.rightReps;
-  if (row.counting === 'perSide') return left * set.reps * 2;
-  return left * set.reps * (row.basis === 'perDumbbell' ? 2 : 1);
+export function setReps(set, row) {
+  if (set.reps == null) return null;
+  return set.rightReps != null ? set.reps + set.rightReps : set.reps * (row.counting === 'perSide' ? 2 : 1);
+}
+
+export function setVolume(set, row) {
+  const left = externalLoad(set.amount);
+  if (left == null || set.reps == null) return null;
+  const right = externalLoad(set.rightAmount) ?? left;
+  const volume = set.rightReps != null ? left * set.reps + right * set.rightReps :
+    left * setReps(set, row) * (row.basis === 'perDumbbell' && (row.counting ?? 'total') === 'total' ? 2 : 1);
+  return Number.isFinite(volume) ? volume : null;
 }
 
 export function sessionMetrics(session, exerciseID, variants) {
   const rows = sessionPlan(session).exercises.filter(row => (!exerciseID || row.exercise.id === exerciseID) &&
-    (!variants || variants.has(variantKey(row))));
+    (!variants || variants.has(historyVariantKey(row, session.id))));
   const byID = new Map(rows.map(row => [row.id, row]));
   const sets = session.results.filter(set => byID.has(set.exerciseID));
-  const volumes = sets.map(set => setVolume(set, byID.get(set.exerciseID))).filter(value => value != null);
+  const allowStation = Boolean(exerciseID && new Set(rows.map(row => historyVariantKey(row, session.id))).size === 1);
+  const volumes = sets.flatMap(set => {
+    const row = byID.get(set.exerciseID);
+    const value = !isStation(row) || (allowStation && !unlinkedStation(row)) ? setVolume(set, row) : null;
+    return value == null ? [] : [value];
+  });
   const duration = session.completedAt && session.durationKnown !== false ? workoutTimes(session, session.completedAt).elapsed : null;
   return { count: sets.length, duration, volume: volumes.length ? volumes.reduce((total, value) => total + value, 0) : null };
 }
@@ -77,7 +91,7 @@ export function compareSessions(left, right, exerciseID = '') {
   const shared = new Set(a.map(row => row.exercise.id).filter(id => b.some(row => row.exercise.id === id)));
   const order = rows => rows.filter(row => shared.has(row.exercise.id)).map(row => row.exercise.id).join('|');
   const equipment = (rows, id) => [...new Set(rows.filter(row => row.exercise.id === id).map(equipmentKey))].sort().join(';');
-  const performed = (session, rows) => new Set(rows.filter(row => session.results.some(set => set.exerciseID === row.id)).map(variantKey));
+  const performed = (session, rows) => new Set(rows.filter(row => session.results.some(set => set.exerciseID === row.id)).map(row => historyVariantKey(row, session.id)));
   const bKeys = performed(right, b);
   const compatible = new Set([...performed(left, a)].filter(key => bKeys.has(key)));
   const leftMetrics = sessionMetrics(left, exerciseID);
@@ -85,9 +99,8 @@ export function compareSessions(left, right, exerciseID = '') {
   const matchingVolumeLeft = sessionMetrics(left, exerciseID, compatible).volume;
   const matchingVolumeRight = sessionMetrics(right, exerciseID, compatible).volume;
   const reps = (session, rows) => {
-    const relevant = new Map(rows.filter(row => compatible.has(variantKey(row))).map(row => [row.id, row]));
-    const counts = session.results.filter(set => relevant.has(set.exerciseID) && set.reps != null).map(set =>
-      set.rightReps != null ? set.reps + set.rightReps : set.reps * (relevant.get(set.exerciseID).counting === 'perSide' ? 2 : 1));
+    const relevant = new Map(rows.filter(row => compatible.has(historyVariantKey(row, session.id))).map(row => [row.id, row]));
+    const counts = session.results.filter(set => relevant.has(set.exerciseID) && set.reps != null).map(set => setReps(set, relevant.get(set.exerciseID)));
     return counts.length ? counts.reduce((a, b) => a + b, 0) : null;
   };
   const leftReps = reps(left, a), rightReps = reps(right, b);
@@ -112,30 +125,10 @@ export function priorComparable(session, sessions) {
   const rows = sessionPlan(session).exercises.filter(row => actual.has(row.id));
   for (const other of older) {
     const previous = sessionPlan(other).exercises.find(row => other.results.some(result => result.exerciseID === row.id) &&
-      rows.some(current => variantKey(current) === variantKey(row)));
+      rows.some(current => historyVariantKey(current, session.id) === historyVariantKey(row, other.id)));
     if (previous) return { other, exerciseID: previous.exercise.id };
   }
   return null;
-}
-
-export function loadProgress(sessions, filters = {}) {
-  const variants = new Map();
-  for (const session of historyFilter(sessions.filter(session => session.completedAt), filters).reverse()) {
-    for (const row of sessionPlan(session).exercises) {
-      if ((filters.equipment && equipmentKey(row) !== filters.equipment) || (filters.exercise && row.exercise.id !== filters.exercise)) continue;
-      const candidates = session.results.filter(result => result.exerciseID === row.id && loaded(result.amount));
-      if (!candidates.length) continue;
-      const value = Math.max(...candidates.map(result => Math.max(result.amount.value, result.rightAmount?.value ?? 0)));
-      const key = variantKey(row);
-      const entry = variants.get(key) ?? { key, row, peak: 0, points: [] };
-      entry.peak = Math.max(entry.peak, value);
-      const prior = entry.points.at(-1);
-      if (prior?.date === dayOf(session)) prior.value = Math.max(prior.value, value);
-      else entry.points.push({ date: dayOf(session), value });
-      variants.set(key, entry);
-    }
-  }
-  return [...variants.values()];
 }
 
 const displayAmount = (amount, unit) => amount == null ? '' :

@@ -1,6 +1,7 @@
 import { escapeHTML as html } from './exercises.js';
-import { comparisonScopes, compareSessions, dayOf, equipmentKey, equipmentName, historyFilter, historyRows, loadProgress,
+import { comparisonScopes, compareSessions, dayOf, equipmentKey, equipmentName, historyFilter, historyRows,
   priorComparable, sessionMetrics, sessionStatus } from './history.js';
+import { completedCounts, plannedCounts } from './analytics.js';
 import { offsetDay, weekdayOf } from './schedule.js';
 import { renderPlan, setSummary } from './routine-ui.js';
 import { hasReps, measurements } from './routines.js';
@@ -100,6 +101,7 @@ export function historyCard(session, unit, active, photos, dateLabel) {
     <p class="history-status ${sessionStatus(session) === 'Completed' ? 'is-complete' : ''}">${sessionStatus(session)} · ${versionText(session)}</p>
     <p class="builder-hint">${html(dateLabel(dayOf(session)))} · ${session.results.length} recorded sets${session.endedEarly ? ' · Ended early' : ''}</p>
     ${session.completedAt && session.durationKnown !== false && session.log ? `<p class="builder-hint history-time">${historyTime(session)}</p>` : ''}
+    ${planTally(session)}
     ${session.log?.notes ? `<p>${html(session.log.notes)}</p>` : ''}
     ${plan.exercises.map(row => historyExercise(session, row, unit, false)).join('')}
     ${session.snapshot.revision > 0 ? `<details><summary>Original routine prescription</summary>${renderPlan(session.snapshot, unit)}</details>` : ''}
@@ -107,6 +109,13 @@ export function historyCard(session, unit, active, photos, dateLabel) {
     <div class="builder-actions">${session.completedAt ? button('Edit workout', 'history-edit', session.id) +
       button('Compare sessions', 'history-compare', session.id) + (active ? '' : button('Repeat workout', 'plan-repeat', session.id)) :
       button('Resume workout', 'active')}</div></article>`;
+}
+
+function planTally(session, exercise = '') {
+  const planned = plannedCounts(session.snapshot, { exercise });
+  const performed = completedCounts(session, { exercise });
+  return `<p class="builder-hint">Working sets · ${performed.working} completed · ${planned.working} originally planned<br>
+    Warm-ups · ${performed['warm-up']} completed · ${planned['warm-up']} originally planned</p>`;
 }
 
 function historyTime(session) {
@@ -129,24 +138,6 @@ export function renderHistorySessions(data, state, unit, active, format) {
     ${recent.length ? recent.map(session => historyCard(session, unit, active, data.photos, dateLabel)).join('') :
       `<section class="surface settings-card"><h3>${calendar ? 'No workouts on this date' : 'No matching workouts'}</h3><p class="builder-hint">${Object.values(state.filters).some(Boolean) ? 'Try adjusting your filters.' : 'Recorded workouts appear here.'}</p></section>`}
   </div>`;
-}
-
-export function renderProgress(sessions, filters, unit) {
-  const trends = loadProgress(sessions, filters);
-  if (!trends.length) return '<section class="surface settings-card"><h2>Recorded loads</h2><p>Logged external loads from finished workouts will appear here.</p></section>';
-  return trends.map(trend => {
-    const points = trend.points.slice(-16);
-    const lowest = Math.min(...points.map(point => point.value));
-    const range = Math.max(...points.map(point => point.value)) - lowest || 1;
-    const x = index => points.length === 1 ? 150 : 12 + index * 276 / (points.length - 1);
-    const y = value => range === 1 && points.every(point => point.value === lowest) ? 38 : 64 - (value - lowest) / range * 52;
-    const line = points.map((point, index) => x(index) + ',' + y(point.value)).join(' ');
-    return `<section class="surface settings-card history-trend"><h2>${html(trend.row.exercise.name)}</h2>
-      <p class="builder-hint">${html(equipmentName(trend.row))}${trend.row.basis === 'perDumbbell' ? ' · Per dumbbell' : ''}</p>
-      <p><strong>Heaviest logged load ${mass(trend.peak, unit)} ${unit}</strong></p>
-      <svg viewBox="0 0 300 76" role="img" aria-label="${html(points.map(point => point.date + ', ' + mass(point.value, unit) + ' ' + unit).join('; '))}">
-      <polyline points="${line}" fill="none" stroke="currentColor" stroke-width="2"/>${points.map((point, index) => `<circle fill="currentColor" cx="${x(index)}" cy="${y(point.value)}" r="3"/>`).join('')}</svg></section>`;
-  }).join('');
 }
 
 function changeSummary(comparison, unit, duration) {
@@ -181,6 +172,7 @@ export function renderComparison(session, candidates, selectedID, scopeID, unit)
   const stats = compareSessions(session, other, scope.id);
   const side = (item, metrics, label) => `<section class="log-panel history-compare-side"><h3>${label} · ${html(sessionPlan(item).name)}</h3>
     <p>${dayOf(item)} · ${versionText(item)} · ${sessionStatus(item)}</p>${renderHistoryMetrics(metrics, unit, !scope.id)}
+    ${planTally(item, scope.id)}
     ${sessionPlan(item).exercises.filter(row => !scope.id || row.exercise.id === scope.id).map(row => historyExercise(item, row, unit, true)).join('')}</section>`;
   return `<div class="stack history-comparison">
     <div class="builder-fields">${select('Compare with', 'id="history-other"', options(candidates.map(item => [item.id, dayOf(item) + ' · ' + sessionPlan(item).name + ' · ' + versionText(item)]), other.id))}

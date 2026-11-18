@@ -2,6 +2,7 @@ import { isDay, kilogramsPerPound, localDayKey } from './storage.js';
 import { applyWorkoutChange, reconcileLog, repeatLog, routineFromLog, sessionPlan, variantKey, workoutLog } from './workout-log.js';
 import { applyScheduleChange, scheduleEntry, scheduleVersion } from './schedule.js';
 import { invalidateHistoryPredictions, saveHistoryEntry } from './history.js';
+import { validateAnalytics } from './analytics.js';
 export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
@@ -229,6 +230,9 @@ export function createRoutineStore(storage) {
     },
     saveHistory(draft, now) {
       return save(data => saveHistoryEntry(data, draft, now));
+    },
+    saveAnalytics(settings) {
+      return save(data => { data.analyticsSettings = validateAnalytics(settings); });
     },
     startScheduled(id, date, now = new Date()) {
       return save(data => {

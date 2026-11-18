@@ -41,7 +41,8 @@ final class WorkoutHistoryTests: XCTestCase {
             XCTAssertEqual(corrected.localDate, day)
             XCTAssertEqual(corrected.workoutLog?.notes, "From notebook")
             XCTAssertEqual(WorkoutHistory.metrics(corrected).volume, 400)
-            XCTAssertEqual(WorkoutHistory.trends(reopened.records.sessions, filter: HistoryFilter()).first?.peak, 80)
+            let trend = WorkoutAnalytics.exercises(reopened.records, filter: HistoryFilter(), purpose: .working, settings: AnalyticsSettings())
+            XCTAssertEqual(trend.first?.records.heaviest?.load, 80)
             XCTAssertTrue(reopened.records.predictions.isEmpty)
             XCTAssertTrue(WorkoutHistory.filtered(reopened.records.sessions, by: HistoryFilter(from: day.offset(1))).isEmpty)
         }

@@ -10,7 +10,8 @@ import { loadKey } from './workout-log.js';
 import { offsetDay, recentMuscles, scheduleEntries, scheduleWindow, statusLabels } from './schedule.js';
 import { readinessFields, renderMove, renderProgramWeek, renderReadiness, renderSchedulePlanner, rotationSteps, scheduleSummary } from './schedule-ui.js';
 import { comparisonScopes, dayOf, historyDraft, newHistorySet, priorComparable, sessionsByDate } from './history.js';
-import { calendarMonth, renderComparison, renderFinishSummary, renderHistoryEditor, renderHistoryFilters, renderHistorySessions, renderProgress } from './history-ui.js';
+import { calendarMonth, renderComparison, renderFinishSummary, renderHistoryEditor, renderHistoryFilters, renderHistorySessions } from './history-ui.js';
+import { readAnalyticsSettings, renderAnalytics } from './analytics-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -74,6 +75,7 @@ const state = {
   sampleMode: false,
   date: localDayKey(), routine: null, history: 'progress', expanded: new Set(),
   historyView: { layout: 'list', day: localDayKey(), month: localDayKey(), filters: {} },
+  analyticsView: { purpose: 'working', week: null, settingsOpen: false },
   libraryOpen: false, exerciseDetail: null, substituteFor: null, availableEquipment: new Set(),
   exerciseQuery: newExerciseQuery(), exercises: readStorage(exerciseStore.load, { custom: [], preferences: {} }),
   muscleRegion: '', muscleView: 'planned', calendarAnchor: null,
@@ -361,7 +363,8 @@ function historyPage() {
           <strong>${displayWeight(entry.kilograms)} ${state.unit}</strong></li>`).join('')}</ul>
       </section>` : '';
     return heading + picker + `<div class="stack session-list">${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
-      ${renderProgress(state.planRecords.sessions, state.historyView.filters, state.unit)}${entries}</div>`;
+      ${renderAnalytics(state.planRecords, state.historyView.filters, state.unit, state.analyticsView, libraryExercise,
+        Object.fromEntries(Object.entries(anatomy?.regions ?? {}).map(([key, region]) => [key, region.name])), dateLabel)}${entries}</div>`;
   }
   const content = progress ? chart() : `<section class="stack session-list" aria-label="Sample sessions">${sample.history.map(entry => `<article class="surface session"><span class="tile-icon">${icon('dumbbell', 21)}</span><div><h2>${routineFor(entry.routineID).name}</h2><p>${entry.sets} sets · ${entry.minutes} min</p></div><span class="meta">${shortDate(entry.date)}</span></article>`).join('')}</section>`;
   return heading + picker + content;
@@ -1197,6 +1200,27 @@ document.addEventListener('click', event => {
   }
   if (action.startsWith('history-')) {
     handleHistoryAction(action, value, target, focus);
+    return;
+  }
+  if (action.startsWith('analytics-')) {
+    const view = state.analyticsView;
+    if (action === 'analytics-save') {
+      try {
+        state.planRecords = routineStore.saveAnalytics(readAnalyticsSettings(main.querySelector('#analytics-options')));
+        view.settingsOpen = true;
+        render({ focus });
+        announce('Analytics settings saved.');
+      } catch (error) {
+        main.querySelector('#analytics-error').textContent = error.message;
+      }
+    } else {
+      if (action === 'analytics-purpose') view.purpose = value;
+      if (action === 'analytics-week') {
+        view.week = value === '0' ? localDayKey() : offsetDay(view.week ?? state.historyView.filters.to ?? localDayKey(), Number(value));
+      }
+      view.settingsOpen = main.querySelector('.analytics-options')?.open ?? false;
+      render({ focus });
+    }
     return;
   }
   switch (action) {

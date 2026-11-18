@@ -294,6 +294,26 @@ h2 { font-size: 1.17rem; line-height: 1.2; letter-spacing: -.033em; font-weight:
 .history-editor textarea { width: 100%; padding: .5rem; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: .5rem; font: inherit; }
 .history-set-editor { display: grid; gap: .45rem; margin-block: .55rem; }
 .history-trend svg { width: 100%; max-height: 105px; color: var(--accent); }
+.analytics-options fieldset { border: 1px solid var(--border); border-radius: .6rem; padding: .7rem; min-width: 0; }
+.analytics-options fieldset > label { margin-block: .25rem; }
+.analytics-options .stack, .analytics-charts, .analytics-muscle { margin-top: .65rem; }
+.analytics-options .builder-fields { margin-block: .45rem; }
+.analytics-tallies { margin-top: .6rem; }
+.analytics-table-wrap { overflow-x: auto; }
+.analytics-table-wrap table { width: 100%; border-collapse: collapse; font-size: .75rem; text-align: center; }
+.analytics-table-wrap th, .analytics-table-wrap td { padding: .3rem .17rem; border-bottom: 1px solid var(--border); }
+.analytics-table-wrap tbody th { text-align: start; }
+.analytics-table-wrap th { color: var(--muted); }
+.analytics-charts { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.analytics-chart { min-width: 0; padding: .55rem; border: 1px solid var(--border); border-radius: .6rem; }
+.analytics-chart h3, .analytics-muscle h3 { font-size: .97rem; }
+.analytics-chart svg { display: block; }
+.analytics-axis { display: flex; justify-content: space-between; font-size: .73rem; color: var(--muted); }
+.analytics-annotation { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; }
+.analytics-notice { padding: .35rem .5rem; background: var(--surface-soft); color: var(--accent); border-radius: .45rem; }
+.analytics-exercise summary, .analytics-options summary { cursor: pointer; padding-block: .3rem; }
+.analytics-records { margin-block: .45rem; }
+.analytics-values { padding-inline-start: 1.15rem; font-size: .82rem; display: grid; gap: .16rem; max-height: 13rem; overflow-y: auto; }
 .log-timing { font-size: .83rem; color: var(--muted); }
 .log-quick button, .log-dock button { min-height: 44px; padding: .45rem .65rem; font-size: .78rem; }
 .log-dock { position: sticky; bottom: -.05rem; z-index: 1; display: grid; gap: .28rem; padding: .45rem;

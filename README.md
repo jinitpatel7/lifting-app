@@ -16,6 +16,8 @@ Use **Readiness** for an optional daily check-in and **Recent training** on the 
 
 Open **History → Sessions** for the calendar or chronological list. Use **Add missed workout** to record an earlier session, or **Edit workout** to correct completed results and notes. Choose **Compare sessions** to view two workouts side by side. Finishing a workout opens its summary before you return to the app.
 
+Open **History → Progress** for exercise trends, records, and weekly set counts. Switch between working sets and warm-ups. **Analytics settings** controls visible metrics, weekly dashboard statistics, and the criteria for possible plateau flags.
+
 ## Open the preview
 
 Run `npm run dev` from this folder. The Node.js preview stores routines, workout plans, weights, and preferences in the browser and includes the separate sample mode. [Open the local preview](http://127.0.0.1:4173/)

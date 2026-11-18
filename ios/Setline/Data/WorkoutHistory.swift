@@ -25,6 +25,14 @@ extension PlannedExercise {
     var historyEquipmentKey: String { variant.equipment?.id.uuidString ?? "kind-" + (variant.exercise.profile?.equipmentKind?.rawValue ?? "bodyweight") }
     var historyEquipmentName: String { variant.equipment?.name ?? variant.exercise.profile?.equipmentKind?.rawValue.capitalized ?? "Bodyweight" }
     var historyVariantKey: HistoryVariantKey { HistoryVariantKey(variant: variant.key, equipment: historyEquipmentKey) }
+    var isStation: Bool {
+        let kind = variant.equipment?.kind ?? variant.exercise.profile?.equipmentKind
+        return kind == .machine || kind == .cable
+    }
+    var unlinkedStation: Bool { isStation && variant.equipment == nil }
+    func comparableKey(in session: UUID) -> HistoryVariantKey {
+        unlinkedStation ? HistoryVariantKey(variant: variant.key, equipment: historyEquipmentKey + session.uuidString + id.uuidString) : historyVariantKey
+    }
 }
 
 struct HistoryVariantKey: Hashable {
@@ -83,18 +91,6 @@ struct HistoryComparison {
     let repsChange: Double?
 }
 
-struct HistoryLoadTrend: Identifiable {
-    struct Point: Identifiable {
-        let date: WorkoutDate
-        var value: Double
-        var id: WorkoutDate { date }
-    }
-    var id: HistoryVariantKey { entry.historyVariantKey }
-    let entry: PlannedExercise
-    var points: [Point] = []
-    var peak: Double { points.map(\.value).max() ?? 0 }
-}
-
 enum WorkoutHistory {
     static func filtered(_ sessions: [WorkoutSession], by filter: HistoryFilter = HistoryFilter()) -> [WorkoutSession] {
         sessions.filter { session in
@@ -115,25 +111,40 @@ enum WorkoutHistory {
         }
     }
 
-    private static func volume(_ set: PerformedSet, exercise: PlannedExercise) -> Double? {
+    static func totalReps(_ reps: Repetitions?) -> Double? {
+        switch reps {
+        case .total(let count): Double(count)
+        case .perSide(let count): Double(count) * 2
+        case .separateSides(let left, let right): Double(left) + Double(right)
+        case nil: nil
+        }
+    }
+
+    static func volume(_ set: PerformedSet, exercise: PlannedExercise) -> Double? {
         guard let load = externalLoad(set.amount), let reps = set.repetitions else { return nil }
         let right = externalLoad(set.rightAmount) ?? load
+        let value: Double
         switch reps {
         case .total(let count):
-            if case .weightReps(.perDumbbell, _) = exercise.variant.measurement { return load * Double(count) * 2 }
-            return load * Double(count)
-        case .perSide(let count): return load * Double(count) * 2
-        case .separateSides(let left, let rightReps): return load * Double(left) + right * Double(rightReps)
+            if case .weightReps(.perDumbbell, _) = exercise.variant.measurement { value = load * Double(count) * 2 }
+            else { value = load * Double(count) }
+        case .perSide(let count): value = load * Double(count) * 2
+        case .separateSides(let left, let rightReps): value = load * Double(left) + right * Double(rightReps)
         }
+        return value.isFinite ? value : nil
     }
 
     static func metrics(_ session: WorkoutSession, exerciseID: UUID? = nil, variants: Set<HistoryVariantKey>? = nil) -> HistoryMetrics {
         let exercises = session.plan.exercises.filter { exercise in
-            (exerciseID == nil || exerciseID == exercise.variant.exercise.id) && (variants?.contains(exercise.historyVariantKey) ?? true)
+            (exerciseID == nil || exerciseID == exercise.variant.exercise.id) && (variants?.contains(exercise.comparableKey(in: session.id)) ?? true)
         }
         let lookup = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
         let sets = session.performedSets.filter { lookup[$0.plannedExerciseID] != nil }
-        let volumes = sets.compactMap { set in lookup[set.plannedExerciseID].flatMap { volume(set, exercise: $0) } }
+        let allowStation = exerciseID != nil && Set(exercises.map { $0.comparableKey(in: session.id) }).count == 1
+        let volumes = sets.compactMap { set -> Double? in
+            guard let entry = lookup[set.plannedExerciseID], !entry.isStation || (allowStation && !entry.unlinkedStation) else { return nil }
+            return volume(set, exercise: entry)
+        }
         let duration = session.manualDurationKnown == false ? nil : session.completedAt.map { session.workoutTimes(at: $0, clock: session.workoutLog?.clock).elapsed }
         return HistoryMetrics(sets: sets.count, duration: duration, volume: volumes.isEmpty ? nil : volumes.reduce(0, +))
     }
@@ -165,15 +176,10 @@ enum WorkoutHistory {
         let pastVolume = metrics(previous, exerciseID: scope.exerciseID, variants: compatible).volume
         let change = ownVolume.flatMap { own in pastVolume.map { own - $0 } }
         func reps(_ session: WorkoutSession, in rows: [PlannedExercise]) -> Double? {
-            let slots = Set(rows.filter { compatible.contains($0.historyVariantKey) }.map(\.id))
+            let slots = Set(rows.filter { compatible.contains($0.comparableKey(in: session.id)) }.map(\.id))
             let counts: [Double] = session.performedSets.compactMap { set in
                 guard slots.contains(set.plannedExerciseID) else { return nil }
-                switch set.repetitions {
-                case .total(let count): return Double(count)
-                case .perSide(let count): return Double(count) * 2
-                case .separateSides(let left, let right): return Double(left) + Double(right)
-                case nil: return nil
-                }
+                return totalReps(set.repetitions)
             }
             return counts.isEmpty ? nil : counts.reduce(0, +)
         }
@@ -192,7 +198,7 @@ enum WorkoutHistory {
         let performed = comparableVariants(in: session)
         for other in older {
             let common = performed.intersection(comparableVariants(in: other))
-            if let row = session.plan.exercises.first(where: { common.contains($0.historyVariantKey) }) {
+            if let row = session.plan.exercises.first(where: { common.contains($0.comparableKey(in: session.id)) }) {
                 return (other, HistoryScope(exerciseID: row.variant.exercise.id, label: row.variant.exercise.name))
             }
         }
@@ -205,30 +211,9 @@ enum WorkoutHistory {
 
     private static func comparableVariants(in session: WorkoutSession) -> Set<HistoryVariantKey> {
         let performed = Set(session.performedSets.map(\.plannedExerciseID))
-        return Set(session.plan.exercises.filter { performed.contains($0.id) }.map(\.historyVariantKey))
+        return Set(session.plan.exercises.filter { performed.contains($0.id) }.map { $0.comparableKey(in: session.id) })
     }
 
-    static func trends(_ sessions: [WorkoutSession], filter: HistoryFilter) -> [HistoryLoadTrend] {
-        var series: [HistoryVariantKey: HistoryLoadTrend] = [:]
-        for session in filtered(sessions.filter { $0.completedAt != nil }, by: filter).reversed() {
-            for row in session.plan.exercises where (filter.equipment.isEmpty || row.historyEquipmentKey == filter.equipment) &&
-                (filter.exerciseID == nil || row.variant.exercise.id == filter.exerciseID) {
-                let key = row.historyVariantKey
-                let values = session.performedSets.filter { $0.plannedExerciseID == row.id }.compactMap { set in
-                    externalLoad(set.amount).map { max($0, externalLoad(set.rightAmount) ?? $0) }
-                }
-                guard let value = values.max() else { continue }
-                var trend = series[key] ?? HistoryLoadTrend(entry: row)
-                if let last = trend.points.indices.last, trend.points[last].date == session.localDate {
-                    trend.points[last].value = max(trend.points[last].value, value)
-                } else {
-                    trend.points.append(.init(date: session.localDate, value: value))
-                }
-                series[key] = trend
-            }
-        }
-        return series.values.sorted { $0.entry.variant.exercise.name.localizedCompare($1.entry.variant.exercise.name) == .orderedAscending }
-    }
 }
 
 extension TrainingRecords {

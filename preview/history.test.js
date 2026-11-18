@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRoutineStore, draftExercise, makeDraft, newest } from './routines.js';
-import { comparisonScopes, compareSessions, equipmentKey, historyDraft, historyFilter, loadProgress,
+import { comparisonScopes, compareSessions, equipmentKey, historyDraft, historyFilter,
   newHistorySet, priorComparable, sessionMetrics, sessionStatus } from './history.js';
+import { exerciseAnalytics } from './analytics.js';
 import { previousResult, sessionPlan, variantKey } from './workout-log.js';
 
 function fixture() {
@@ -79,7 +80,7 @@ test('correcting a load keeps the original prescription and refreshes metrics, t
   assert.equal(corrected.results[0].id, session.results[0].id);
   assert.equal(corrected.results[0].at, session.results[0].at);
   assert.equal(sessionMetrics(corrected).volume, 687.5);
-  assert.equal(loadProgress(saved.sessions).find(entry => entry.row.exercise.name === 'Bench').peak, 82.5);
+  assert.equal(exerciseAnalytics(saved).find(entry => entry.row.exercise.name === 'Bench').records.heaviest.load, 82.5);
   assert.deepEqual(saved.predictions.map(entry => entry.id), ['keep']);
 });
 
@@ -119,7 +120,9 @@ test('skipped sets show an incomplete result and assistance does not contribute 
   const session = store.saveHistory(draft, now).sessions[0];
   assert.equal(sessionStatus(session), 'Incomplete');
   assert.equal(sessionMetrics(session).volume, null);
-  assert.deepEqual(loadProgress([session]), []);
+  const [trend] = exerciseAnalytics({ sessions: [session], schedule: [] });
+  assert.equal(trend.records.heaviest, undefined);
+  assert.equal(trend.points[0].values.volume, undefined);
 });
 
 test('backfilling an older workout does not replace the latest previous performance', () => {
