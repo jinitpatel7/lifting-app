@@ -170,7 +170,7 @@ struct ForecastAccuracyCard: View {
     }
 }
 
-private extension ForecastDimension {
+extension ForecastDimension {
     var title: String {
         switch self {
         case .weight: "Load"

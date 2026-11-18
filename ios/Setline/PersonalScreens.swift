@@ -75,6 +75,7 @@ struct PersonalTodayScreen: View {
                 }.pickerStyle(.segmented)
                 InteractiveMuscleMap(involvement: MuscleInvolvement(plannedProfiles), browse: browseMuscle,
                     recent: recentView ? records.recentMuscles(asOf: asOf) : nil, asOf: asOf)
+                WorkoutScoreBreakdown(assessment: DailyWorkoutScore.assessment(on: day, records: records, today: today))
             }
         }
         .onChange(of: records.scheduleSettings) { anchor = nil; selectedDay = nil }

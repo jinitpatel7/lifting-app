@@ -84,7 +84,7 @@ enum ExerciseForecasts {
     private static let minimum = 3
     private static let windowSize = 8
 
-    private struct Outcome {
+    struct Outcome {
         let values: [ForecastDimension: Double]
         let set: PerformedSet
         let first: Bool
@@ -237,7 +237,7 @@ enum ExerciseForecasts {
                 }
                 continue
             }
-            guard let result = actual(session, row: entry), result.set.recordedAt < cutoff else { continue }
+            guard let result = comparableWorkingResult(session, row: entry), result.set.recordedAt < cutoff else { continue }
             if WorkoutAnalytics.context(session, records: records).kind == .deload { deloads = true; continue }
             output.append(Observation(source: ForecastSource(id: session.id, day: session.localDate, setID: result.set.id), actual: result,
                 context: context(for: entry, in: session.plan, log: session.workoutLog)))
@@ -245,7 +245,7 @@ enum ExerciseForecasts {
         return (output, otherSetup, deloads)
     }
 
-    private static func actual(_ session: WorkoutSession, row: PlannedExercise) -> Outcome? {
+    static func comparableWorkingResult(_ session: WorkoutSession, row: PlannedExercise) -> Outcome? {
         let positions = Dictionary(uniqueKeysWithValues: session.plan.exercises.enumerated().map { ($0.element.id, $0.offset) })
         let ordered = session.performedSets.sorted { left, right in
             if left.recordedAt != right.recordedAt { return left.recordedAt < right.recordedAt }
@@ -334,7 +334,7 @@ enum ExerciseForecasts {
         for session in records.sessions where session.completedAt != nil && session.performanceForecasts?.isEmpty == false &&
             WorkoutAnalytics.context(session, records: records).kind != .deload {
             for row in session.plan.exercises {
-                guard let result = actual(session, row: row),
+                guard let result = comparableWorkingResult(session, row: row),
                       let forecast = session.performanceForecasts?.last(where: { $0.slotID == row.id && $0.issuedAt <= result.set.recordedAt }),
                       forecast.status == .ready, let previous = forecast.previous, row.variant.key == forecast.variant,
                       result.first == forecast.context.first else { continue }

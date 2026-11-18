@@ -289,6 +289,7 @@ struct WorkoutSession: Codable, Equatable, Identifiable {
     var performanceForecasts: [PerformanceForecast]? = nil
     var forecastEvidenceAt: Date? = nil
     var forecastPerformedSlots: Set<UUID>? = nil
+    var energyInput: WorkoutEnergyInput? = nil
 
     var plan: RoutineVersion { sessionPlan ?? routineSnapshot }
 }

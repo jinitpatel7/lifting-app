@@ -292,6 +292,25 @@ h2 { font-size: 1.17rem; line-height: 1.2; letter-spacing: -.033em; font-weight:
 .forecast-ranges dt { font-weight: 700; }
 .forecast-ranges dd { margin: 0; }
 .forecast-ranges small { display: block; color: var(--muted); }
+.weekly-recap { display: grid; min-width: 0; gap: .65rem; }
+.recap-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
+.recap-stats > div, .recap-energy { display: grid; align-content: start; gap: .2rem; padding: .6rem; background: var(--surface-soft); border-radius: .65rem; }
+.recap-stats span, .recap-stats small { color: var(--muted); font-size: .77rem; }
+.recap-disclosure, .session-energy { border-top: 1px solid var(--border); padding-top: .25rem; }
+.recap-disclosure summary, .workout-score summary, #energy-form summary { cursor: pointer; min-height: 44px; align-content: center; color: var(--accent-strong); font-weight: 700; }
+.recap-content { margin-block: .4rem .6rem; }
+.recap-content ul, .recap-content dl { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.recap-content li { display: grid; gap: .15rem; padding: .4rem; background: var(--surface-soft); border-radius: .45rem; }
+.recap-content dt { font-weight: 700; }
+.recap-content dd { margin: .2rem 0 0; color: var(--muted); }
+.recap-table { overflow: auto; }
+.recap-table table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+.recap-table :is(th, td) { padding: .4rem .25rem; border-bottom: 1px solid var(--border); text-align: left; }
+.recap-context { color: var(--accent-strong); font-weight: 650; }
+.session-energy { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; margin-block: .45rem; }
+#energy-form label { display: grid; gap: .25rem; font-size: .85rem; }
+#energy-form :is(input, select) { width: 100%; min-width: 0; min-height: 44px; color: var(--text); background: var(--surface-soft); border: 1px solid var(--border); border-radius: .6rem; padding: .5rem; }
+#energy-form .entry-error:empty { display: none; }
 .history-results .progression-assessment { color: var(--accent-strong); font-weight: 700; }
 #progression-form { margin-top: .6rem; }
 #progression-form label[hidden], .progression-detail .entry-error:empty { display: none; }

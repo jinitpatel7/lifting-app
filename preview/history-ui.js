@@ -13,6 +13,7 @@ import { sessionPlan } from './workout-log.js';
 import { resultSummary } from './workout-ui.js';
 import { clockText, workoutTimes } from './workout-tools.js';
 import { renderForecastArchive } from './forecast-ui.js';
+import { renderSessionEnergy } from './recap-ui.js';
 
 const button = (name, action, value = '', extra = '') => `<button type="button" class="secondary" data-action="${action}" data-value="${html(value)}" ${extra}>${html(name)}</button>`;
 const option = (value, label, current) => `<option value="${html(value)}"${value === current ? ' selected' : ''}>${html(label)}</option>`;
@@ -95,7 +96,7 @@ function historyExercise(session, row, unit, compact) {
       '<p class="builder-hint">No performed sets.</p>'}</div>`;
 }
 
-export function historyCard(session, unit, active, photos, dateLabel) {
+export function historyCard(session, unit, active, photos, dateLabel, entries) {
   const plan = sessionPlan(session);
   return `<article class="surface settings-card saved-routine history-card"><h3>${html(plan.name)}</h3>
     <p class="history-status ${sessionStatus(session) === 'Completed' ? 'is-complete' : ''}">${sessionStatus(session)} · ${versionText(session)}</p>
@@ -105,6 +106,7 @@ export function historyCard(session, unit, active, photos, dateLabel) {
     ${session.log?.notes ? `<p>${html(session.log.notes)}</p>` : ''}
     ${plan.exercises.map(row => historyExercise(session, row, unit, false)).join('')}
     ${renderForecastArchive(session, unit, dateLabel)}
+    ${session.completedAt ? renderSessionEnergy(session, entries) : ''}
     ${session.snapshot.revision > 0 ? `<details><summary>Original routine prescription</summary>${renderPlan(session.snapshot, unit)}</details>` : ''}
     <section class="history-photos"><h4>Progress photos</h4>${renderPhotoArea(photos, dayOf(session), session.id, Boolean(session.completedAt))}</section>
     <div class="builder-actions">${session.completedAt ? button('Edit workout', 'history-edit', session.id) +
@@ -138,7 +140,7 @@ export function renderHistorySessions(data, state, unit, active, format, photos,
     ${calendar ? `<h2>${html(dateLabel(state.day))}</h2><section class="surface settings-card history-date-details"><h3>Date details</h3>
       ${bodyweightOn(user.entries[state.day], state.day, unit)}
       <h4>Date progress photos</h4>${renderPhotoArea(photos, state.day, null, state.day <= localDayKey())}</section>` : ''}
-    ${recent.length ? recent.map(session => historyCard(session, unit, active, photos, dateLabel)).join('') :
+    ${recent.length ? recent.map(session => historyCard(session, unit, active, photos, dateLabel, user.entries)).join('') :
       `<section class="surface settings-card"><h3>${calendar ? 'No workouts on this date' : 'No matching workouts'}</h3><p class="builder-hint">${Object.values(state.filters).some(Boolean) ? 'Try adjusting your filters.' : 'Recorded workouts appear here.'}</p></section>`}
   </div>`;
 }
@@ -157,14 +159,14 @@ function changeSummary(comparison, unit, duration) {
     ${comparison.exercisesChanged ? '<p class="history-flag">Exercise selection differed</p>' : ''}</div>`;
 }
 
-export function renderFinishSummary(session, sessions, unit, dateLabel) {
+export function renderFinishSummary(session, sessions, unit, dateLabel, entries) {
   const prior = priorComparable(session, sessions);
   return `<div class="stack history-summary"><p class="history-status">${sessionStatus(session)}</p>${renderHistoryMetrics(sessionMetrics(session), unit)}
     ${prior ? `<section class="log-panel"><h3>Since the previous ${prior.exerciseID ? 'comparable exercise' : 'workout with this routine'}</h3>
       <p>${html(sessionPlan(prior.other).name)} · ${dayOf(prior.other)}</p>
       ${changeSummary(compareSessions(session, prior.other, prior.exerciseID), unit, !prior.exerciseID)}</section>` :
       '<p class="builder-hint">No prior comparable session.</p>'}
-    ${renderForecastArchive(session, unit, dateLabel)}${button('View in history', 'history-view-finished', session.id)}</div>`;
+    ${renderForecastArchive(session, unit, dateLabel)}${renderSessionEnergy(session, entries)}${button('View in history', 'history-view-finished', session.id)}</div>`;
 }
 
 export function renderComparison(session, candidates, selectedID, scopeID, unit) {

@@ -19,6 +19,9 @@ import { cancelPhotoPreviews, paintPhotoPreviews, renderManagePhotos, renderPhot
 import { readProgressionRule, renderProgressionDetail, renderProgressionList, updateProgressionFields } from './progression-ui.js';
 import { progressionRule, suggestProgression } from './progression.js';
 import { renderForecastEvaluation, renderForecastPreview } from './forecast-ui.js';
+import { renderEnergyEditor, renderScore, renderWeeklyRecap } from './recap-ui.js';
+import { weeklyRecap } from './weekly-recap.js';
+import { dailyWorkoutScore } from './workout-score.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -84,6 +87,7 @@ const state = {
   date: localDayKey(), routine: null, history: 'progress', expanded: new Set(),
   historyView: { layout: 'list', day: localDayKey(), month: localDayKey(), filters: {} },
   analyticsView: { purpose: 'working', week: null, settingsOpen: false },
+  recapWeek: null,
   libraryOpen: false, exerciseDetail: null, substituteFor: null, availableEquipment: new Set(),
   exerciseQuery: newExerciseQuery(), exercises: readStorage(exerciseStore.load, { custom: [], preferences: {} }),
   muscleRegion: '', muscleView: 'planned', calendarAnchor: null,
@@ -302,7 +306,8 @@ function todayPage() {
       asOf: shortDate(state.date > today() ? today() : state.date) } : {}),
   };
   const side = state.sampleMode ? (routine ? muscleMap(routine) + bodyweight() : bodyweight() + muscleMap(null)) :
-    bodyweight() + readinessCard() + renderMuscleMap(anatomy, muscleInvolvement(scheduledExercises), state.muscleRegion, context);
+    bodyweight() + readinessCard() + renderMuscleMap(anatomy, muscleInvolvement(scheduledExercises), state.muscleRegion, context) +
+    renderScore(dailyWorkoutScore(state.date, state.planRecords.sessions.filter(session => dayOf(session) === state.date), scheduled));
   const cards = scheduled.map(entry => {
     const version = personalVersion(entry.versionID);
     if (!version) return '';
@@ -367,12 +372,14 @@ function historyPage() {
   if (!state.sampleMode) {
     const compare = '<div class="history-photo-action"><button type="button" class="secondary" data-action="photos-compare">Compare progress photos</button></div>';
     if (!progress) return heading + picker + compare + renderHistorySessions(state.planRecords, state.historyView, state.unit, activePersonal(), dateLabel, state.photoLinks, state.user);
-    return heading + picker + compare + `<div class="stack session-list">${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
+    const names = Object.fromEntries(Object.entries(anatomy?.regions ?? {}).map(([key, region]) => [key, region.name]));
+    const recap = weeklyRecap(state.planRecords, state.user.entries, state.recapWeek ?? today(), libraryExercise, today());
+    return heading + picker + compare + `<div class="stack session-list">${renderWeeklyRecap(recap, state.planRecords, state.unit, today(), names, shortDate)}
+      ${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
       ${renderBodyweight(state.user, state.unit, shortDate)}
       <section class="surface settings-card progression-entry"><h2>Exercise progression</h2><button type="button" class="secondary" data-action="progression-open">Review progression</button></section>
       ${renderForecastEvaluation(state.planRecords, state.unit)}
-      ${renderAnalytics(state.planRecords, state.historyView.filters, state.unit, state.analyticsView, libraryExercise,
-        Object.fromEntries(Object.entries(anatomy?.regions ?? {}).map(([key, region]) => [key, region.name])), dateLabel)}</div>`;
+      ${renderAnalytics(state.planRecords, state.historyView.filters, state.unit, state.analyticsView, libraryExercise, names, dateLabel)}</div>`;
   }
   const content = progress ? chart() : `<section class="stack session-list" aria-label="Sample sessions">${sample.history.map(entry => `<article class="surface session"><span class="tile-icon">${icon('dumbbell', 21)}</span><div><h2>${routineFor(entry.routineID).name}</h2><p>${entry.sets} sets · ${entry.minutes} min</p></div><span class="meta">${shortDate(entry.date)}</span></article>`).join('')}</section>`;
   return heading + picker + content;
@@ -426,6 +433,7 @@ function render({ scroll = false, focus = null } = {}) {
 
 let dialogAction = null;
 let dialogTrigger = null;
+let energyContext = null;
 let exerciseDraft = null;
 let progressionReview = null;
 let progressionRoutineID = '';
@@ -906,9 +914,28 @@ function finishLogger(id, early) {
 
 function showFinishedWorkout(session) {
   if (!session) return;
-  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit, dateLabel) +
+  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit, dateLabel, state.user.entries) +
     `<div class="builder-actions"><button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>
       ${state.planRecords.routines.length ? `<button type="button" class="secondary" data-action="progression-open" data-value="${personalRoutine(session.snapshot.routineID)?.id ?? ''}">Review progression</button>` : ''}</div>`, '.active-bar');
+}
+
+function openEnergyEditor(id, focus) {
+  const session = personalSession(id);
+  if (!session?.completedAt || !session.results.length) return;
+  energyContext = { id, finish: dialogAction === 'history-finish' };
+  showDialog('energy', 'Workout calories', renderEnergyEditor(session, state.user.entries, dateLabel), energyContext.finish ? dialogTrigger : focus);
+}
+
+function saveEnergyInput(input) {
+  if (!energyContext) return;
+  const { id, finish } = energyContext;
+  try {
+    state.planRecords = routineStore.saveWorkoutEnergy(id, input);
+    if (finish) showFinishedWorkout(personalSession(id));
+    else dialog.close();
+    render();
+    announce(input ? 'Calorie inputs saved.' : 'Calorie inputs cleared.');
+  } catch (error) { dialog.querySelector('#energy-error').textContent = error.message; }
 }
 
 function confirmLog(message, label, action, value = '') {
@@ -1380,6 +1407,15 @@ document.addEventListener('click', event => {
     return;
   }
   switch (action) {
+    case 'energy-edit': openEnergyEditor(value, focus); break;
+    case 'energy-clear': saveEnergyInput(null); break;
+    case 'recap-week': {
+      const direction = Number(value);
+      const day = offsetDay(state.recapWeek ?? today(), direction);
+      state.recapWeek = day >= today() ? null : day;
+      render({ focus: direction > 0 && !state.recapWeek ? '[data-action="recap-week"][data-value="-7"]' : focus });
+      break;
+    }
     case 'theme': state.appearance = theme() === 'dark' ? 'light' : 'dark'; savePreferences(); render({ focus }); break;
     case 'appearance': state.appearance = value; savePreferences(); render({ focus }); break;
     case 'transparency': state.opaque = !state.opaque; savePreferences(); render({ focus }); break;
@@ -1469,6 +1505,7 @@ dialog.addEventListener('close', () => {
   photoContext = null;
   photoComparison = null;
   progressionReview = null;
+  energyContext = null;
   cancelPhotoPreviews(dialog);
   if (wasWorkout && activePersonal() && state.tab === 'today') render();
   if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
@@ -1563,6 +1600,12 @@ dialog.addEventListener('input', event => {
   } catch (error) { planError(error); }
 });
 dialog.addEventListener('submit', event => {
+  if (dialogAction === 'energy' && event.target.id === 'energy-form') {
+    event.preventDefault();
+    const values = new FormData(event.target);
+    saveEnergyInput({ activity: values.get('activity'), minutes: Number(values.get('minutes').trim().replace(',', '.')) });
+    return;
+  }
   if (dialogAction === 'progression-detail' && event.target.id === 'progression-form' && progressionReview) {
     event.preventDefault();
     const { routineID, version, row } = progressionReview;

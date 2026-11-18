@@ -43,7 +43,7 @@ function metrics(result, row) {
   return values;
 }
 
-function actual(session, row) {
+export function comparableWorkingResult(session, row) {
   const positions = new Map(sessionPlan(session).exercises.map((entry, index) => [entry.id, index]));
   const ordered = session.results.filter(result => Number.isFinite(stamp(result.at))).slice().sort((a, b) => stamp(a.at) - stamp(b.at) ||
     (positions.get(a.exerciseID) ?? 0) - (positions.get(b.exerciseID) ?? 0) || (a.order ?? 0) - (b.order ?? 0));
@@ -79,7 +79,7 @@ function observations(data, row, plan, cutoff) {
       otherSetup ||= prior.exercises.some(item => item.exercise.id === row.exercise.id && variantKey(item) !== key);
       continue;
     }
-    const performance = actual(session, entry);
+    const performance = comparableWorkingResult(session, entry);
     if (!performance || !(stamp(performance.result.at) < cutoff)) continue;
     if (programContext(data, session).kind === 'deload') { deloads++; continue; }
     result.push({ ...performance, id: session.id, at: session.startedAt, day: dayOf(session), context: contextFor(entry, prior, session.log) });
@@ -221,7 +221,7 @@ export function scoreForecasts(data) {
   for (const session of data.sessions) {
     if (!session.completedAt || !session.performanceForecasts?.length || programContext(data, session).kind === 'deload') continue;
     for (const row of sessionPlan(session).exercises) {
-      const outcome = actual(session, row);
+      const outcome = comparableWorkingResult(session, row);
       if (!outcome) continue;
       const latest = session.performanceForecasts.filter(item => item.rowID === row.id && stamp(item.issuedAt) <= stamp(outcome.result.at)).at(-1);
       if (latest?.status !== 'ready' || !latest.previous || variantKey(row) !== latest.variant || outcome.order !== latest.context.order ||

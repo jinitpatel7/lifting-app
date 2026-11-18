@@ -2,7 +2,7 @@ import SwiftUI
 
 private enum HistorySheet: Identifiable {
     case add(WorkoutDate), edit(UUID), compare(UUID), weight(WorkoutDate)
-    case photos(WorkoutDate, UUID?), comparePhotos(WorkoutDate), progression
+    case photos(WorkoutDate, UUID?), comparePhotos(WorkoutDate), progression, energy(UUID)
 
     var id: String {
         switch self {
@@ -13,6 +13,7 @@ private enum HistorySheet: Identifiable {
         case .photos(let day, let session): "photos-\(day.key)-\(session?.uuidString ?? "date")"
         case .comparePhotos(let day): "compare-photos-\(day.key)"
         case .progression: "progression"
+        case .energy(let id): "energy-\(id.uuidString)"
         }
     }
 }
@@ -68,6 +69,10 @@ struct PersonalHistoryScreen: View {
                 ProgressPhotoComparisonSheet(model: model, selected: date)
             case .progression:
                 ProgressionSheet(model: model, unit: unit)
+            case .energy(let id):
+                if let workout = model.records.sessions.first(where: { $0.id == id }) {
+                    WorkoutEnergyEditor(model: model, session: workout)
+                }
             }
         }
     }
@@ -146,6 +151,9 @@ struct PersonalHistoryScreen: View {
         ForEach(visible) { session in
             PersonalStatus(title: session.plan.name, symbol: session.historyStatus == .completed ? "checkmark.circle" : "dumbbell") {
                 HistorySessionDetails(session: session, unit: unit)
+                if session.completedAt != nil {
+                    WorkoutEnergySummary(session: session, records: model.records) { presented = .energy(session.id) }
+                }
                 WorkoutForecastArchive(session: session, unit: unit)
                 Text("Progress photos").font(.subheadline.weight(.semibold))
                 ProgressPhotoCollection(photos: model.records.photos.filter { $0.subject == .session(session.id) })
@@ -190,6 +198,7 @@ struct PersonalHistoryScreen: View {
     }
 
     @ViewBuilder private var progress: some View {
+        WeeklyRecapCard(model: model, unit: unit)
         BodyweightProgressCard(model: model, unit: unit) { presented = .weight($0) }
         PersonalStatus(title: "Exercise progression", symbol: "chart.line.uptrend.xyaxis") {
             Button("Review progression") { presented = .progression }.buttonStyle(SecondaryButton())
@@ -459,6 +468,7 @@ struct HistoryFinishView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var linking = false
     @State private var progression = false
+    @State private var energyEditor = false
 
     var body: some View {
         NavigationStack {
@@ -474,6 +484,8 @@ struct HistoryFinishView: View {
                     }
                 } else { Text("No prior comparable session.") }
                 WorkoutForecastArchive(session: session, unit: unit)
+                WorkoutEnergySummary(session: session, records: model.records) { energyEditor = true }
+                    .sheet(isPresented: $energyEditor) { WorkoutEnergyEditor(model: model, session: session) }
                 Button("Add progress photos") { linking = true }
                     .sheet(isPresented: $linking) { ProgressPhotosSheet(model: model, day: session.localDate, sessionID: session.id) }
                 if !model.records.currentRoutines.isEmpty {

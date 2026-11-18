@@ -5,6 +5,7 @@ import { invalidateHistoryPredictions, saveHistoryEntry } from './history.js';
 import { validateAnalytics } from './analytics.js';
 import { suggestProgression, validateProgressionRule } from './progression.js';
 import { captureForecasts } from './forecast.js';
+import { validEnergyInput } from './workout-energy.js';
 export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
@@ -254,6 +255,14 @@ export function createRoutineStore(storage) {
     },
     saveHistory(draft, now) {
       return save(data => saveHistoryEntry(data, draft, now));
+    },
+    saveWorkoutEnergy(sessionID, input) {
+      return save(data => {
+        const session = data.sessions.find(item => item.id === sessionID && item.completedAt && item.results.length);
+        if (!session) throw new Error('Choose a finished workout with logged work.');
+        if (input != null && !validEnergyInput(input)) throw new Error('Choose an activity and enter minutes greater than 0 and up to 1,440.');
+        session.energyInput = input ?? null;
+      });
     },
     saveAnalytics(settings) {
       return save(data => { data.analyticsSettings = validateAnalytics(settings); });
