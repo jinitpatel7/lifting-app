@@ -179,6 +179,9 @@ struct PersonalHistoryScreen: View {
                     Text("\(session.localDate.formatted(.dateTime.month(.abbreviated).day())) · \(session.performedSets.count) recorded sets\(session.endedEarly == true ? " · Ended early" : "")")
                         .font(.caption).foregroundStyle(Palette.muted)
                     if let log = session.workoutLog {
+                        if let ended = session.completedAt {
+                            Text(session.workoutTimeSummary(at: ended)).font(.caption).foregroundStyle(Palette.muted)
+                        }
                         if !log.notes.isEmpty { Text(log.notes).font(.subheadline) }
                         ForEach(log.exercises) { workout in
                             if let entry = session.plan.exercises.first(where: { $0.id == workout.id }) {
@@ -187,6 +190,7 @@ struct PersonalHistoryScreen: View {
                                 ForEach(workout.rows) { row in
                                     if let result = session.performedSets.first(where: { $0.id == row.id }) {
                                         Text("Completed · \(result.summary(unit: unit, measurement: entry.variant.measurement))").font(.caption)
+                                        if let rest = result.restSummary { Text(rest).font(.caption).foregroundStyle(Palette.muted) }
                                     } else {
                                         Text(row.status == .skipped ? "Skipped" : "Unfinished").font(.caption).foregroundStyle(Palette.muted)
                                     }
@@ -292,8 +296,16 @@ extension PlannedExercise {
 }
 
 extension PerformedSet {
+    var restSummary: String? {
+        let measured = actualRest?.measuredSeconds.map { "Measured rest \($0)s" }
+        let edited = actualRest?.editedSeconds.map { "Edited rest \($0)s" }
+        let values = [measured, edited].compactMap { $0 }
+        return values.isEmpty ? nil : values.joined(separator: " · ")
+    }
+
     func summary(unit: WeightUnit, measurement: Measurement) -> String {
-        let load = amount?.summary(unit: unit, measurement: measurement)
+        var load = amount?.summary(unit: unit, measurement: measurement)
+        if let left = load, let right = rightAmount?.summary(unit: unit, measurement: measurement) { load = "\(left) left / \(right) right" }
         let reps: String? = switch repetitions {
         case .total(let count): "\(count) reps total"
         case .perSide(let count): "\(count) reps per side"
@@ -302,6 +314,18 @@ extension PerformedSet {
         }
         return [load, reps, actualRIR.map { "RIR \($0)" }, actualRPE.map { "RPE \($0.formatted())" },
                 effortOutcome == .failure ? "To failure" : nil].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+func workoutClockText(_ seconds: Int) -> String {
+    let remainder = seconds % 60
+    return "\(seconds / 60):\(remainder < 10 ? "0" : "")\(remainder)"
+}
+
+extension WorkoutSession {
+    func workoutTimeSummary(at date: Date) -> String {
+        let time = workoutTimes(at: date, clock: workoutLog?.clock)
+        return "Elapsed \(workoutClockText(Int(time.elapsed))) · Active \(workoutClockText(Int(time.active))) · Paused \(workoutClockText(Int(time.paused)))"
     }
 }
 

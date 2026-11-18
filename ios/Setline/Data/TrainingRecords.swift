@@ -267,6 +267,8 @@ struct PerformedSet: Codable, Equatable, Identifiable {
     var amrap: Bool? = nil
     var actualRIR: Int? = nil
     var actualRPE: Double? = nil
+    var rightAmount: SetAmount? = nil
+    var actualRest: ActualWorkoutRest? = nil
 }
 
 struct WorkoutSession: Codable, Equatable, Identifiable {

@@ -210,7 +210,21 @@ struct SetlineRoot: View {
                             if activeName != nil {
                                 Circle().fill(Color(hex: 0xFFA6B8)).frame(width: 6, height: 6).accessibilityHidden(true)
                             }
-                            Text(activeName == nil ? "No active workout" : showsSample ? "Active preview" : "Active workout").font(.caption)
+                            if !showsSample, let session = model.records.activeSession {
+                                TimelineView(.periodic(from: .now, by: 1)) { context in
+                                    let log = session.workoutLog
+                                    if log?.clock?.pausedAt != nil {
+                                        Text("Workout paused")
+                                    } else if let rest = log?.rest {
+                                        let remaining = rest.remaining(active: session.workoutTimes(at: context.date, clock: log?.clock).active)
+                                        Text(remaining == 0 ? "Rest ready" : "Rest \(workoutClockText(remaining))")
+                                    } else {
+                                        Text("Active workout")
+                                    }
+                                }.font(.caption).monospacedDigit()
+                            } else {
+                                Text(activeName == nil ? "No active workout" : "Active preview").font(.caption)
+                            }
                         }
                         .foregroundStyle(Color(hex: 0xE0D7EC))
                     }

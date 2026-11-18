@@ -4,7 +4,9 @@ import { createExerciseStore, escapeHTML, exerciseEditor, readExerciseForm, rend
 import { muscleInvolvement, renderMuscleMap } from './muscle-map.js';
 import { blankSet, createRoutineStore, draftExercise, makeDraft, newGroup, newest, reorder, sessionPlan } from './routines.js';
 import { exerciseOptions, renderCompletedSessions, renderPersonalRoutines, renderPlan, renderRoutineBuilder, renderVersions } from './routine-ui.js';
-import { renderLoggedHistory, renderWorkout } from './workout-ui.js';
+import { renderLoggedHistory, renderWorkout, updateWorkoutFields, workoutStep } from './workout-ui.js';
+import { clockText, restRemaining, workoutTimes } from './workout-tools.js';
+import { loadKey } from './workout-log.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -355,7 +357,8 @@ function renderDock() {
   const personal = activePersonal();
   const activeName = routine?.name ?? (personal ? sessionPlan(personal).name : 'Workout log');
   const status = routine ? 'Active preview' : personal ? 'Active workout' : 'No active workout';
-  dock.innerHTML = `<div class="dock-inner"><button type="button" class="active-bar" data-action="active"><span class="active-icon">${icon('dumbbell', 20)}</span><span class="active-text"><strong>${escapeHTML(activeName)}</strong><span>${routine || personal ? '<span class="live-dot"></span>' : ''}${status}</span></span><span class="active-arrow">${icon('chevron', 18)}</span></button><nav class="tab-bar" aria-label="Main navigation">${tabs.map(([id, title, label]) => `<a href="#${id}" ${state.tab === id ? 'aria-current="page"' : ''} aria-label="${label}">${icon(id, 21)}<span>${title}</span></a>`).join('')}</nav></div>`;
+  dock.innerHTML = `<div class="dock-inner"><button type="button" class="active-bar" data-action="active"><span class="active-icon">${icon('dumbbell', 20)}</span><span class="active-text"><strong>${escapeHTML(activeName)}</strong><span>${routine || personal ? '<span class="live-dot"></span>' : ''}<span${personal && !routine ? ' data-workout-status' : ''}>${status}</span></span></span><span class="active-arrow">${icon('chevron', 18)}</span></button><nav class="tab-bar" aria-label="Main navigation">${tabs.map(([id, title, label]) => `<a href="#${id}" ${state.tab === id ? 'aria-current="page"' : ''} aria-label="${label}">${icon(id, 21)}<span>${title}</span></a>`).join('')}</nav></div>`;
+  paintWorkoutClocks();
 }
 
 function render({ scroll = false, focus = null } = {}) {
@@ -403,6 +406,7 @@ function showSession(trigger) {
         session = activePersonal();
       }
       showDialog('personal-workout', escapeHTML(sessionPlan(session).name), workoutMarkup(session), trigger);
+      paintWorkout(session);
     } catch (error) { planError(error, trigger); }
     return;
   }
@@ -417,8 +421,43 @@ function showSession(trigger) {
 
 function workoutMarkup(session) { return renderWorkout(session, state.planRecords, catalog, state.exercises, state.unit); }
 
+function paintWorkoutClocks() {
+  const session = activePersonal();
+  if (!session) return;
+  const now = new Date().toISOString();
+  const timing = workoutTimes(session, now);
+  timing.rest = restRemaining(session, now);
+  const status = dock.querySelector('[data-workout-status]');
+  const text = session.log?.clock?.pausedAt ? 'Workout paused' : timing.rest == null ? 'Active workout' :
+    timing.rest === 0 ? 'Rest ready' : 'Rest ' + clockText(timing.rest);
+  if (status && status.textContent !== text) status.textContent = text;
+  if (dialogAction !== 'personal-workout') return;
+  for (const node of dialog.querySelectorAll('[data-clock]')) {
+    const value = timing[node.dataset.clock];
+    const label = value === 0 && node.dataset.clock === 'rest' ? 'Ready' : clockText(value);
+    if (node.textContent !== label) node.textContent = label;
+  }
+}
+
+function paintWorkout(session) {
+  paintWorkoutClocks();
+  for (const node of dialog.querySelectorAll('[data-log-set]:has(.log-typo)')) paintWorkoutRow(node, session);
+}
+
+function paintWorkoutRow(node, session) {
+  const id = node.closest('[data-log-exercise]').dataset.logExercise;
+  const exercise = session.log.exercises.find(item => item.id === id);
+  const set = exercise.sets.find(item => item.id === node.dataset.logSet);
+  const row = sessionPlan(session).exercises.find(item => item.id === id);
+  updateWorkoutFields(node, session, state.planRecords.sessions, row, set, exercise, state.unit);
+}
+
+setInterval(paintWorkoutClocks, 250);
+document.addEventListener('visibilitychange', paintWorkoutClocks);
+
 function refreshWorkout() {
   const previous = dialog.querySelector('.workout-editor');
+  const actionKey = document.activeElement?.closest('.log-dock') && document.activeElement.dataset.action;
   const focusedSet = document.activeElement?.closest('[data-log-set]')?.dataset.logSet;
   const expanded = new Set([...previous.querySelectorAll('details[open]')].map(item => item.dataset.logDisclosure));
   const scroll = dialog.scrollTop;
@@ -426,7 +465,9 @@ function refreshWorkout() {
   previous.outerHTML = workoutMarkup(session);
   for (const item of dialog.querySelectorAll('details[data-log-disclosure]')) item.open = expanded.has(item.dataset.logDisclosure);
   dialog.scrollTop = scroll;
-  if (focusedSet) dialog.querySelector(`[data-log-set="${focusedSet}"] > button`)?.focus({ preventScroll: true });
+  if (actionKey) (dialog.querySelector(`.log-dock [data-action="${actionKey}"]`) ?? dialog.querySelector('.log-dock button'))?.focus({ preventScroll: true });
+  else if (focusedSet) dialog.querySelector(`[data-log-set="${focusedSet}"] > button`)?.focus({ preventScroll: true });
+  paintWorkout(session);
 }
 
 function finishLogger(id, early) {
@@ -450,6 +491,15 @@ function confirmEndEarly() {
   confirmLog('Save completed results and leave pending sets unfinished?', 'End early and save', 'log-confirm-end');
 }
 
+function completeWorkoutSet(exerciseID, setID) {
+  const row = dialog.querySelector(`[data-log-set="${setID}"]`);
+  const hint = row.querySelector('.log-typo')?.textContent;
+  applyLoggerChange({ action: 'complete', exerciseID, setID });
+  (dialog.querySelector('.log-dock [data-action="log-complete-next"]') ??
+    dialog.querySelector('.log-dock [data-action="log-undo-last"]'))?.focus({ preventScroll: true });
+  if (hint) announce(hint.replace('You can still log this set.', 'Set logged.'));
+}
+
 function applyLoggerChange(change, { refresh = true } = {}) {
   state.planRecords = routineStore.logChange(activePersonal().id, change, state.unit);
   if (refresh) refreshWorkout();
@@ -463,6 +513,40 @@ function handleLogAction(action, value, target, focus) {
   const change = { exerciseID, setID: value };
   try {
     switch (action) {
+      case 'log-workout-pause': return applyLoggerChange({ action: 'pause' });
+      case 'log-workout-resume': return applyLoggerChange({ action: 'resume' });
+      case 'log-timer-extend': return applyLoggerChange({ action: 'extendRest' });
+      case 'log-timer-restart': return applyLoggerChange({ action: 'restartRest' });
+      case 'log-timer-skip': return applyLoggerChange({ action: 'skipRest' });
+      case 'log-undo-last': return applyLoggerChange({ action: 'undoLast' });
+      case 'log-focus-next': {
+        const row = dialog.querySelector(`[data-log-set="${value}"]`);
+        row.tabIndex = -1;
+        row.focus({ preventScroll: true });
+        return row.scrollIntoView({ block: 'center' });
+      }
+      case 'log-complete-next': {
+        const [exerciseID, setID] = value.split('/');
+        return completeWorkoutSet(exerciseID, setID);
+      }
+      case 'log-sides': return applyLoggerChange({ ...change, action: 'editSet', field: 'separateSides', value: !set.input?.separateSides });
+      case 'log-step': {
+        const [field, direction] = value.split('/');
+        const node = target.closest('[data-log-set]');
+        const row = sessionPlan(session).exercises.find(item => item.id === exerciseID);
+        const loggingSet = exercise.sets.find(item => item.id === node.dataset.logSet);
+        const next = workoutStep(session, row, loggingSet, field, Number(direction), state.unit);
+        if (next != null) applyLoggerChange({ action: 'editSet', exerciseID, setID: loggingSet.id, field, value: next });
+        else announce('No available load in that direction.');
+        return;
+      }
+      case 'log-save-equipment': {
+        const node = target.closest('[data-log-set]');
+        const row = sessionPlan(session).exercises.find(item => item.id === exerciseID);
+        const profile = session.log.loadProfiles?.[loadKey(row)];
+        const values = Object.fromEntries([...node.querySelectorAll('[data-log-gear]')].map(field => [field.dataset.logGear, field.value]));
+        return applyLoggerChange({ action: 'loadProfile', exerciseID, unit: profile?.unit ?? set.input?.unit ?? state.unit, ...values });
+      }
       case 'log-start-empty':
       case 'log-start-scheduled':
         if (!session) state.planRecords = action === 'log-start-empty' ? routineStore.startEmpty() : routineStore.startScheduled(value);
@@ -486,7 +570,7 @@ function handleLogAction(action, value, target, focus) {
         entry.work = [];
         return applyLoggerChange({ action: 'addExercise', entry });
       }
-      case 'log-complete': return applyLoggerChange({ ...change, action: 'complete' });
+      case 'log-complete': return completeWorkoutSet(exerciseID, value);
       case 'log-undo': return applyLoggerChange({ ...change, action: 'undo' });
       case 'log-skip-set': return applyLoggerChange({ ...change, action: 'skipSet' });
       case 'log-restore-set': return applyLoggerChange({ ...change, action: 'restoreSet' });
@@ -900,6 +984,11 @@ dialog.addEventListener('close', () => {
 });
 dialog.addEventListener('change', event => {
   const field = event.target;
+  if (dialogAction === 'personal-workout' && field.hasAttribute('data-log-rest-edit')) {
+    try { applyLoggerChange({ action: 'editRest', setID: field.closest('[data-log-set]').dataset.logSet, value: field.value }); }
+    catch (error) { planError(error); }
+    return;
+  }
   if (dialogAction === 'personal-workout' && field.id === 'log-exercise-choice') {
     const chosen = libraryExercise(field.value);
     if (chosen) dialog.querySelector('#log-measurement').value = chosen.equipment ? 'weight' : 'bodyweight';
@@ -930,6 +1019,7 @@ dialog.addEventListener('input', event => {
     if (row) {
       row.classList.replace('planned', 'edited');
       row.querySelector('.log-badge').textContent = 'Edited';
+      paintWorkoutRow(row, activePersonal());
     }
     dialog.querySelector('#plan-session-error').textContent = '';
   } catch (error) { planError(error); }

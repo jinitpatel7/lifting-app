@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createRoutineStore, draftExercise, makeDraft, newest, sessionPlan } from './routines.js';
+import { createRoutineStore, draftExercise, makeDraft, newGroup, newest, sessionPlan } from './routines.js';
 import { previousResult } from './workout-log.js';
+import { parsePlates, plateOptions, restRemaining, typoHint, workoutSequence, workoutTimes } from './workout-tools.js';
+import { workoutStep } from './workout-ui.js';
 
 function fixture() {
   const memory = new Map();
@@ -116,4 +118,110 @@ test('a skipped previous row does not borrow the result from the next set', () =
   const row = sessionPlan(repeated).exercises[0];
   assert.equal(previousResult(repeated, sessions, row, entry.sets[0], entry), null);
   assert.equal(previousResult(repeated, sessions, row, entry.sets[1], entry).order, 2);
+});
+
+test('superset timing survives interruption, freezes during a pause, and measures rest independently of edits', () => {
+  const { store, storage, version } = fixture();
+  const draft = makeDraft(version);
+  draft.groups = [{ ...newGroup(), kind: 'superset', members: draft.exercises.map(row => row.id), rounds: '2', restExercises: '20', restRounds: '75' }];
+  store.saveRoutine(draft, 'kg');
+  const session = store.start(version.routineID).sessions[0];
+  const [a, b] = session.log.exercises;
+  const time = offset => new Date(Date.parse(session.startedAt) + offset * 1000).toISOString();
+  const change = (action, at, values) => store.logChange(session.id, { action, ...values }, 'kg', time(at)).sessions[0];
+  const complete = (exercise, index, at) => change('complete', at, { exerciseID: exercise.id, setID: exercise.sets[index].id });
+  change('trackRest', 0, { value: true });
+  const first = complete(a, 0, 5);
+  assert.equal(first.log.rest.targetSeconds, 20);
+  assert.equal(workoutSequence(first.log, sessionPlan(first)).find(item => item.set.status === 'pending').exerciseID, b.id);
+  change('extendRest', 10);
+  const paused = change('pause', 15);
+  assert.equal(restRemaining(paused, time(300)), 25);
+  const reopened = createRoutineStore(storage).load().sessions[0];
+  assert.equal(reopened.log.rest.startedAt, time(5));
+  assert.deepEqual(workoutTimes(reopened, time(300)), { elapsed: 300, paused: 285, active: 15 });
+  assert.throws(() => complete(b, 0, 300), /resume/i);
+  change('resume', 300);
+  assert.equal(restRemaining(change('restartRest', 302), time(305)), 17);
+  change('editRest', 305, { setID: a.sets[0].id, value: '22' });
+  const next = complete(b, 0, 310);
+  assert.equal(next.log.rest.targetSeconds, 75);
+  assert.equal(next.results.find(item => item.id === a.sets[0].id).actualRest.measuredSeconds, 20);
+  assert.equal(next.results.find(item => item.id === a.sets[0].id).actualRest.editedSeconds, 22);
+  const skipped = change('skipRest', 312);
+  assert.equal(skipped.results.find(item => item.id === b.sets[0].id).actualRest.reason, 'skipped');
+  const restored = change('undoLast', 312);
+  assert.equal(restored.log.rest.setID, b.sets[0].id);
+  assert.equal(restored.results.find(item => item.id === b.sets[0].id).actualRest, undefined);
+});
+
+test('plate totals and configured increments respect available equipment and units', () => {
+  const plates = parsePlates('20x1, 5x1, 2.5x1');
+  assert.deepEqual(plateOptions(20, plates, 75), { exact: true, plates: [20, 5, 2.5], lower: 70, upper: null });
+  assert.deepEqual(plateOptions(20, plates, 65), { exact: true, plates: [20, 2.5], lower: 60, upper: 70 });
+  assert.equal(plateOptions(20, plates, 40).exact, false);
+  assert.throws(() => parsePlates('5x31'));
+  const { store } = fixture();
+  const session = store.startEmpty().sessions[0];
+  const change = (action, values) => store.logChange(session.id, { action, ...values }, 'lb').sessions[0];
+  const entry = draftExercise({ id: crypto.randomUUID(), name: 'Dumbbell row', equipment: 'dumbbell' });
+  Object.assign(entry, { basis: 'perDumbbell', counting: 'perSide', work: [] });
+  const set = change('addExercise', { entry }).log.exercises[0].sets[0];
+  const edit = (field, value) => change('editSet', { exerciseID: entry.id, setID: set.id, field, value });
+  change('loadProfile', { exerciseID: entry.id, increment: '5', unit: 'lb' });
+  edit('amount', '50');
+  edit('reps', '7');
+  edit('separateSides', true);
+  edit('rightReps', '5');
+  edit('rightAmount', '45');
+  const current = store.load().sessions[0];
+  const row = sessionPlan(current).exercises[0];
+  assert.equal(workoutStep(current, row, current.log.exercises[0].sets[0], 'amount', 1, 'lb'), '55');
+  const completed = change('complete', { exerciseID: entry.id, setID: set.id }).results[0];
+  assert.deepEqual([completed.reps, completed.rightReps], [7, 5]);
+  assert.ok(completed.rightAmount.value < completed.amount.value);
+  change('removeExercise', { exerciseID: entry.id });
+  const restored = change('undoLast');
+  assert.deepEqual(restored.results[0], completed);
+  assert.equal(restored.log.rest.setID, set.id);
+  assert.match(typoHint({ amount: '500', reps: '55' }, { amount: '50', reps: '8' }, row), /load and reps/);
+  assert.match(typoHint({ amount: '400' }, { amount: '40' }, { measurement: 'duration' }), /duration/);
+});
+
+test('a circuit honors zero rest, routes around queued equipment, and uses set rest after the final round', () => {
+  const { store, version } = fixture();
+  const draft = makeDraft(version);
+  const carry = draftExercise({ id: crypto.randomUUID(), name: 'Carry', equipment: 'dumbbell' });
+  Object.assign(carry.work[0], { sets: '2', minimum: '6', maximum: '8', target: '20', rest: '45' });
+  draft.exercises.push(carry);
+  draft.exercises.slice(0, 2).forEach(row => { row.work[0].sets = '2'; });
+  draft.groups = [{ ...newGroup('circuit'), members: draft.exercises.map(row => row.id), rounds: '2', restExercises: '0', restRounds: '50' }];
+  store.saveRoutine(draft, 'kg');
+  const session = store.start(version.routineID).sessions[0];
+  const [a, b, c] = session.log.exercises;
+  const change = (action, values) => store.logChange(session.id, { action, ...values }, 'kg').sessions[0];
+  const complete = (exercise, index) => change('complete', { exerciseID: exercise.id, setID: exercise.sets[index].id });
+  change('queue', { exerciseID: b.id, value: true });
+  assert.equal(complete(a, 0).log.rest.targetSeconds, 0);
+  assert.equal(complete(c, 0).log.rest.targetSeconds, 50);
+  assert.equal(complete(a, 1).log.rest.targetSeconds, 0);
+  const final = complete(c, 1);
+  assert.equal(final.log.rest.targetSeconds, 45);
+  assert.deepEqual(final.log.exercises[1].sets.map(set => set.status), ['pending', 'pending']);
+  assert.equal(final.results.some(set => set.actualRest), false);
+});
+
+test('a timed unilateral set requires and preserves an independent result for each side', () => {
+  const { store } = fixture();
+  const session = store.startEmpty().sessions[0];
+  const entry = draftExercise({ id: crypto.randomUUID(), name: 'Side plank' });
+  Object.assign(entry, { measurement: 'duration', work: [] });
+  const change = (action, values) => store.logChange(session.id, { action, exerciseID: entry.id, ...values }, 'kg').sessions[0];
+  const setID = change('addExercise', { entry }).log.exercises[0].sets[0].id;
+  change('editSet', { setID, field: 'amount', value: '45' });
+  change('editSet', { setID, field: 'separateSides', value: true });
+  assert.throws(() => change('complete', { setID }), /enter/i);
+  change('editSet', { setID, field: 'rightAmount', value: '35' });
+  const [result] = change('complete', { setID }).results;
+  assert.deepEqual([result.amount.value, result.rightAmount.value, result.reps], [45, 35, null]);
 });

@@ -2,13 +2,14 @@
 
 ## Product and stage
 
-Setline helps experienced lifters follow their own routines, record performance, and review exercise-specific progress. Workouts are always authored by the lifter. Stage 5 adds the workout logger to the existing offline records, exercise library, and routine builder. **View sample data** opens the separately stored sample week anchored on November 17, 2026.
+Setline helps experienced lifters follow their own routines, record performance, and review exercise-specific progress. Workouts are always authored by the lifter. Stage 6 adds rest and session timing, next-set controls, and equipment-aware entry to the existing logger. **View sample data** opens the separately stored sample week anchored on November 17, 2026.
 
 - **Today / Log** reads the device calendar, saved schedule, and daily bodyweight. It starts a scheduled plan or an empty workout. Interactive front and back maps combine muscles across the planned exercises for the selected day. Primary involvement takes precedence when a muscle has both roles.
 - **Routines** creates, edits, duplicates, categorizes, and schedules manually authored plans. It shows the current plan and its saved version history, and opens the Exercise Library.
 - **History / Progress** reads completed session plans, sets, and bodyweight history. Repeat opens a new workout based on a completed session with its recorded results available for reference. The bench press trend is in the sample preview.
 - **Settings** provides system, light, and dark appearance, solid navigation, and kilogram or pound display.
 - The workout bar resumes the persisted active session across all four tabs. The logger shows planned targets and prior results, saves field edits and notes, and supports one-tap completion and undo. Set and exercise controls change order, add and remove rows, or skip pending work. The busy-equipment queue preserves rows for later in the session.
+- The workout toolbar shows the next pending set, provides thumb-reachable completion and timing controls, and supports one-step undo of completion, deletion, skip, and reorder. Possible entry typos appear as advisory feedback alongside the set.
 
 ## Architecture and data conventions
 
@@ -35,12 +36,16 @@ Setline helps experienced lifters follow their own routines, record performance,
 - Workout-only edits save an effective plan on the active session. The starting snapshot and the source routine version are retained. Completed sessions are read-only. Repeats reference the completed session’s results and start with an empty performed-set list.
 - Pending, skipped, and completed are separate set states. Prefills and edits save as inputs. Explicit completion creates a performed result with typed measurements and optional actual RIR, RPE, and failure. End early retains completed, skipped, and unfinished rows as recorded. Repeats reset statuses, notes, and the queue while copying the session’s exercise and set structure.
 - Today-only edits are the default. **Update routine** explicitly promotes the current order, set rows, and edited targets to a new version of the linked routine. Older versions, recorded effort, session notes, and completed sessions retain their original data. A newer routine version requires editing from Routines.
+- Rest starts on explicit completion. Ungrouped sets use their prescribed rest or 90 seconds when unset. Supersets and circuits use the configured interval before the next available set in the same round or the next round. Warm-ups and transitions out of a group use ordinary set rest. A zero interval is ready immediately.
+- Elapsed time comes from the session start and finish timestamps. Active time excludes explicit pauses. Countdown timestamps and pause state persist across interruptions. Optional measured rest counts active seconds between completion and the next completion or **Skip rest**, including time after the countdown reaches zero. Extension and restart only change the countdown. An edited rest value is saved alongside the measured seconds, with both labeled. Finishing clears the unclosed final interval.
+- Equipment profiles store a bar weight and available matching plate pairs, or a user-entered weight increment in its configured unit. The plate calculator finds balanced setups and attainable neighboring totals. Per-side prescriptions can log explicit left and right reps and an optional different right-side load. Timed and distance sets also support separate left and right values. Both sides’ results remain separate from the prescription.
 
 ## Verification and remaining work
 
 - Browser tests cover search, exercise preferences, custom exercise identities, substitutions, and muscle involvement, alongside the previous local storage checks. Chromium at iPhone width checks direct and keyboard muscle selection, combined filters, custom creation and edits, saved preferences after reload, the sample plan after browsing substitutions, and the empty library with the catalog unavailable.
 - Routine tests cover creation and categories, reorder, grouping, measurements, duplication, immutable history, workout-only edits, and start-from-history behavior. The browser workflow exercises those controls at phone width. Swift syntax and Xcode source membership passed static checks on Windows. The native test suite requires a Swift toolchain, and the app still needs an Xcode build, device testing, and a VoiceOver pass.
 - Workout tests cover scheduled and empty starts, deliberate completion, undo, set and exercise edits, notes, equipment queue restoration, version promotion, end-early records, and prior results on repeat. Phone-width Chromium covered the workflow and accessibility checks.
+- Stage 6 tests cover pause/resume, actual-rest provenance, superset transitions, equipment increments, plate inventory, asymmetric results, and deletion undo. The phone-width browser run froze the page and restarted Chromium with the same local profile. Native backgrounding, relaunch, and VoiceOver still need device verification. Countdown feedback is in the app and the workout bar.
 - Future stages include program scheduling, readiness and photo entry, and exercise-specific progression. Prediction panels are static placeholders. Photo selection will need PhotosPicker. Apple Watch needs a watchOS target and WatchConnectivity. Lock Screen needs an ActivityKit Live Activity and WidgetKit extension.
 
 ## Artwork

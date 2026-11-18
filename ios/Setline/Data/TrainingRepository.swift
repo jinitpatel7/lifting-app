@@ -315,7 +315,8 @@ final class TrainingRepository {
         guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
         guard let entry = session.plan.exercises.first(where: { $0.id == set.plannedExerciseID }),
               set.order > 0, set.recordedAt >= session.startedAt,
-              entry.variant.measurement.accepts(set.amount), entry.variant.measurement.accepts(set.repetitions) else {
+              entry.variant.measurement.accepts(set.amount),
+              entry.variant.measurement.acceptsPerformed(reps: set.repetitions, rightAmount: set.rightAmount) else {
             throw TrainingDataError.invalidRecord("The performed set must match the session’s exercise, measurement, and rep convention.")
         }
         guard !session.performedSets.contains(where: {
@@ -395,6 +396,7 @@ final class TrainingRepository {
                 return existing
             }
             updated.workoutLog?.exercises = exercises
+            updated.workoutLog?.undo = nil
             synchronizeResults(in: &updated)
         }
         try commit { $0.sessions[index] = updated }
@@ -413,6 +415,8 @@ final class TrainingRepository {
         try commit {
             $0.sessions[index].completedAt = date
             $0.sessions[index].endedEarly = early || unfinished ? true : nil
+            $0.sessions[index].workoutLog?.rest = nil
+            $0.sessions[index].workoutLog?.undo = nil
         }
     }
 
@@ -528,6 +532,19 @@ extension TrainingRepository {
         var log = try session.workoutLog ?? WorkoutLog(session: session)
         let originalPlan = session.plan
         var exercises = originalPlan.exercises
+        let times = session.workoutTimes(at: date, clock: log.clock)
+        let previousUndo = log.undo
+        if let label = change.undoLabel {
+            log.undo = WorkoutUndo(label: label, exercises: log.exercises, results: session.performedSets,
+                                  plan: session.sessionPlan, rest: log.rest)
+        } else {
+            switch change {
+            case .undoLast, .pause, .resume, .trackRest, .loadProfile, .sessionNotes: break
+            case .extendRest, .restartRest:
+                if previousUndo?.label != "set completion" { log.undo = nil }
+            default: log.undo = nil
+            }
+        }
         func exerciseIndex(_ id: UUID) throws -> Int {
             guard let position = log.exercises.firstIndex(where: { $0.id == id }) else {
                 throw TrainingDataError.unknownRecord("This exercise is no longer in the workout.")
@@ -541,6 +558,49 @@ extension TrainingRepository {
             return row
         }
         switch change {
+        case .undoLast:
+            guard let undo = previousUndo else { return }
+            log.exercises = undo.exercises
+            session.performedSets = undo.results
+            session.sessionPlan = undo.plan
+            log.rest = undo.rest
+            log.undo = nil
+        case .pause:
+            guard log.clock?.pausedAt == nil else { return }
+            log.clock = WorkoutClock(pausedAt: date, pausedSeconds: times.paused)
+        case .resume:
+            guard log.clock?.pausedAt != nil else { return }
+            log.clock = WorkoutClock(pausedAt: nil, pausedSeconds: times.paused)
+        case .trackRest(let enabled): log.trackRest = enabled
+        case .extendRest:
+            guard var rest = log.rest, log.clock?.pausedAt == nil else { return }
+            let spent = times.active - rest.countdownActive
+            rest.extensionSeconds = max(rest.extensionSeconds, spent - Double(rest.targetSeconds)) + 15
+            log.rest = rest
+        case .restartRest:
+            guard var rest = log.rest, log.clock?.pausedAt == nil else { return }
+            rest.countdownStartedAt = date
+            rest.countdownActive = times.active
+            rest.extensionSeconds = 0
+            log.rest = rest
+        case .skipRest:
+            guard log.rest != nil else { return }
+            log.closeRest(results: &session.performedSets, at: date, active: times.active, reason: "skipped")
+        case .editRest(let row, let text):
+            guard let result = session.performedSets.firstIndex(where: { $0.id == row }) else { return }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var rest = session.performedSets[result].actualRest ?? ActualWorkoutRest()
+            if trimmed.isEmpty {
+                rest.editedSeconds = nil
+            } else {
+                guard let value = Int(trimmed), value >= 0 else { throw TrainingDataError.invalidRecord("Enter actual rest in whole seconds.") }
+                rest.editedSeconds = value
+            }
+            session.performedSets[result].actualRest = rest.measuredSeconds == nil && rest.editedSeconds == nil ? nil : rest
+        case .loadProfile(let key, let profile):
+            var profiles = log.loadProfiles ?? [:]
+            profiles[key] = profile
+            log.loadProfiles = profiles
         case .sessionNotes(let notes): log.notes = notes
         case .exerciseNotes(let id, let notes):
             let position = try exerciseIndex(id)
@@ -556,6 +616,7 @@ extension TrainingRepository {
             log.exercises.append(item)
         case .removeExercise(let id):
             let position = try exerciseIndex(id)
+            if log.exercises[position].rows.contains(where: { $0.id == log.rest?.setID }) { log.rest = nil }
             log.exercises.remove(at: position)
             exercises.removeAll { $0.id == id }
         case .moveExercise(let id, let direction):
@@ -587,6 +648,7 @@ extension TrainingRepository {
         case .removeSet(let id, let row):
             let position = try exerciseIndex(id)
             let slot = try setIndex(row, in: position)
+            if log.rest?.setID == row { log.rest = nil }
             log.exercises[position].rows.remove(at: slot)
         case .moveSet(let id, let row, let direction):
             guard direction == -1 || direction == 1 else { return }
@@ -612,27 +674,38 @@ extension TrainingRepository {
             if log.exercises[position].rows[slot].input == nil, let result = session.performedSets.first(where: { $0.id == row }) {
                 log.exercises[position].rows[slot].input = WorkoutSetInput(result: result)
             }
+            if previousUndo?.label == "set completion", log.rest?.setID == row, let previousUndo {
+                session.performedSets = previousUndo.results
+                log.rest = previousUndo.rest
+            } else if log.rest?.setID == row {
+                log.rest = nil
+            }
             log.exercises[position].rows[slot].status = .pending
         case .complete(let id, let row, let unit):
             let position = try exerciseIndex(id)
             let slot = try setIndex(row, in: position)
             let set = log.exercises[position].rows[slot]
             guard set.status == .pending, !log.exercises[position].queued else { return }
+            guard log.clock?.pausedAt == nil else { throw TrainingDataError.invalidRecord("Resume the workout before completing a set.") }
             guard let measurement = exercises.first(where: { $0.id == id })?.variant.measurement else {
                 throw TrainingDataError.unknownRecord("This exercise is no longer in the workout.")
             }
             let input = set.input ?? WorkoutSetInput(unit: unit, prescription: set.prescription)
             let amount = try input.performedAmount(for: measurement)
             let reps = try input.repetitions(for: measurement)
+            let rightAmount = try input.performedRightAmount(for: measurement, reps: reps)
             let effort = try input.efforts()
-            guard measurement.accepts(amount), measurement.accepts(reps), date >= session.startedAt else {
+            guard measurement.accepts(amount), measurement.acceptsPerformed(reps: reps, rightAmount: rightAmount),
+                  date >= session.startedAt else {
                 throw TrainingDataError.invalidRecord("Enter valid performance values before completing this set.")
             }
+            log.closeRest(results: &session.performedSets, at: date, active: times.active, reason: "nextSet")
             session.performedSets.append(PerformedSet(id: row, plannedExerciseID: id, order: slot + 1, repetitions: reps,
                 amount: amount, recordedAt: date, effortOutcome: input.failure ? .failure : nil, purpose: set.purpose,
-                structure: set.prescription?.structure, amrap: set.prescription?.amrap, actualRIR: effort.rir, actualRPE: effort.rpe))
+                structure: set.prescription?.structure, amrap: set.prescription?.amrap, actualRIR: effort.rir, actualRPE: effort.rpe, rightAmount: rightAmount))
             log.exercises[position].rows[slot].input = input
             log.exercises[position].rows[slot].status = .completed
+            log.openRest(for: set, groups: originalPlan.groups ?? [], at: date, active: times.active)
         }
         if exercises != originalPlan.exercises {
             let groups = (originalPlan.groups ?? []).compactMap { group in
@@ -693,7 +766,9 @@ extension TrainingRepository {
                 if input.reps != prefill.reps || input.rightReps != prefill.rightReps {
                     switch try input.repetitions(for: measurement) {
                     case .total(let count), .perSide(let count): prescription.reps = RepRange(minimum: count, maximum: count)
-                    case .separateSides(let left, let right): prescription.reps = RepRange(minimum: min(left, right), maximum: max(left, right))
+                    case .separateSides(let left, let right):
+                        let maximum = max(left, right)
+                        prescription.reps = RepRange(minimum: min(left, right) > 0 ? min(left, right) : maximum, maximum: maximum)
                     case nil: break
                     }
                 }

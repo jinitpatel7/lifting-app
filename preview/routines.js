@@ -254,8 +254,8 @@ export function createRoutineStore(storage) {
         session.log = workoutLog(session);
       });
     },
-    logChange(sessionID, change, unit) {
-      return save(data => applyWorkoutChange(active(data, sessionID), change, unit));
+    logChange(sessionID, change, unit, now) {
+      return save(data => applyWorkoutChange(active(data, sessionID), change, unit, now));
     },
     updateRoutine(sessionID) {
       return save(data => {
@@ -276,6 +276,7 @@ export function createRoutineStore(storage) {
         const session = active(data, sessionID);
         session.endedEarly = early || session.log?.exercises.some(exercise => exercise.sets.some(set => set.status === 'pending')) || false;
         session.completedAt = new Date().toISOString();
+        if (session.log) Object.assign(session.log, { undo: null, rest: null });
       });
     },
   };

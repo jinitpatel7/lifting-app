@@ -91,4 +91,68 @@ final class WorkoutLoggingTests: XCTestCase {
             XCTAssertNil(store.records.sessions.first?.endedEarly)
         }
     }
+
+    func testPausedSupersetKeepsTimestampsAndSeparatesMeasuredRestFromEdits() async throws {
+        try await MainActor.run {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SetlineTimerTests-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let files = TrainingFiles(directory: directory)
+            let exercises = [Exercise(name: "Press"), Exercise(name: "Row")]
+            let store = try TrainingRepository(files: files, catalog: exercises)
+            let date = Date(timeIntervalSince1970: 1_800_000_000)
+            let firstBlock = SetPrescription(sets: 2, reps: RepRange(minimum: 6, maximum: 8), target: .weight(try XCTUnwrap(Mass(40))))
+            let plan = exercises.map {
+                PlannedExercise(variant: ExerciseVariant(exercise: $0, equipment: nil, measurement: .weightReps(basis: .total, reps: .perSide)), prescription: firstBlock)
+            }
+            let group = RoutineGroup(kind: .superset, exerciseIDs: plan.map(\.id), rounds: 2, restBetweenExercises: 20, restBetweenRounds: 75)
+            let version = try store.saveRoutine(name: "Upper", exercises: plan, groups: [group], at: date)
+            let session = try store.startSession(versionID: version.id, at: date)
+            try store.prepareWorkoutLog(session.id)
+            let rows = try XCTUnwrap(store.records.activeSession?.workoutLog?.exercises)
+            let first = rows[0].rows[0]
+            let second = rows[1].rows[0]
+            var input = WorkoutSetInput(unit: .kg, prescription: first.prescription)
+            input.reps = "7"
+            input.rightReps = "5"
+            input.separateSides = true
+            input.rightAmount = "35"
+            try store.changeWorkout(session.id, .editSet(rows[0].id, first.id, input), at: date)
+            try store.changeWorkout(session.id, .trackRest(true), at: date)
+            try store.changeWorkout(session.id, .complete(rows[0].id, first.id, .kg), at: date.addingTimeInterval(5))
+            try store.changeWorkout(session.id, .pause, at: date.addingTimeInterval(15))
+            let reopened = try TrainingRepository(files: files, catalog: exercises)
+            let paused = try XCTUnwrap(reopened.records.activeSession)
+            let later = date.addingTimeInterval(300)
+            let times = paused.workoutTimes(at: later, clock: paused.workoutLog?.clock)
+            XCTAssertEqual(times.active, 15)
+            XCTAssertEqual(times.paused, 285)
+            XCTAssertEqual(paused.workoutLog?.rest?.remaining(active: times.active), 10)
+            XCTAssertEqual(paused.workoutLog?.rest?.startedAt, date.addingTimeInterval(5))
+            XCTAssertThrowsError(try reopened.changeWorkout(session.id, .complete(rows[1].id, second.id, .kg), at: later))
+            try reopened.changeWorkout(session.id, .resume, at: later)
+            try reopened.changeWorkout(session.id, .editRest(first.id, "22"), at: later)
+            try reopened.changeWorkout(session.id, .complete(rows[1].id, second.id, .kg), at: later.addingTimeInterval(10))
+            let active = try XCTUnwrap(reopened.records.activeSession)
+            XCTAssertEqual(active.workoutLog?.rest?.targetSeconds, 75)
+            let result = try XCTUnwrap(active.performedSets.first)
+            XCTAssertEqual(result.repetitions, .separateSides(left: 7, right: 5))
+            XCTAssertEqual(result.rightAmount, .weight(try XCTUnwrap(Mass(35))))
+            XCTAssertEqual(result.actualRest?.measuredSeconds, 20)
+            XCTAssertEqual(result.actualRest?.editedSeconds, 22)
+            try reopened.changeWorkout(session.id, .removeExercise(rows[0].id), at: later.addingTimeInterval(11))
+            try reopened.changeWorkout(session.id, .undoLast, at: later.addingTimeInterval(12))
+            XCTAssertEqual(reopened.records.activeSession?.performedSets, active.performedSets)
+        }
+    }
+
+    func testPlateCalculatorHonorsAvailablePairs() throws {
+        let plates = try WorkoutLoadProfile.parsePlates("20x1, 5x1, 2.5x1")
+        let profile = WorkoutLoadProfile(unit: .kg, bar: 20, plates: plates)
+        let options = try XCTUnwrap(profile.options(for: 65))
+        XCTAssertEqual(options.plates, [20, 2.5])
+        XCTAssertEqual(options.lower, 60)
+        XCTAssertEqual(options.upper, 70)
+        XCTAssertNil(try profile.options(for: 40)?.plates)
+        XCTAssertThrowsError(try WorkoutLoadProfile.parsePlates("5x31"))
+    }
 }
