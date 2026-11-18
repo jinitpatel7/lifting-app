@@ -310,9 +310,10 @@ final class TrainingRepository {
             }
             return try startScheduled(entry.id.uuidString, on: entry.localDate, at: date, timeZone: timeZone)
         }
-        let session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone),
+        var session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone),
                                      timeZoneIdentifier: timeZone.identifier, startedAt: date,
                                      scheduleID: scheduleID, routineSnapshot: version)
+        session.captureForecasts(in: records, at: date)
         try commit { $0.sessions.append(session) }
         return session
     }
@@ -351,6 +352,7 @@ final class TrainingRepository {
             updated.workoutLog = log
             synchronizeResults(in: &updated)
         }
+        updated.rememberForecastOutcomes()
         try commit { $0.sessions[index] = updated }
     }
 
@@ -359,14 +361,15 @@ final class TrainingRepository {
         guard records.activeSession == nil else { throw TrainingDataError.activeSessionExists }
         let source = records.sessions[try sessionIndex(sourceID)]
         guard source.completedAt != nil else { throw TrainingDataError.invalidRecord("Choose a completed workout to repeat.") }
-        let session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone), timeZoneIdentifier: timeZone.identifier,
+        var session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone), timeZoneIdentifier: timeZone.identifier,
                                      startedAt: date, scheduleID: nil, routineSnapshot: source.plan, referenceSessionID: source.id,
                                      workoutLog: source.workoutLog?.repeated(), routineUpdateBaseID: source.routineUpdateBaseID)
+        session.captureForecasts(in: records, at: date)
         try commit { $0.sessions.append(session) }
         return session
     }
 
-    func editSessionPlan(_ id: UUID, name: String, exercises: [PlannedExercise], groups: [RoutineGroup] = []) throws {
+    func editSessionPlan(_ id: UUID, name: String, exercises: [PlannedExercise], groups: [RoutineGroup] = [], at date: Date = Date()) throws {
         try requireName(name)
         let index = try sessionIndex(id)
         let session = records.sessions[index]
@@ -407,6 +410,7 @@ final class TrainingRepository {
             updated.workoutLog?.undo = nil
             synchronizeResults(in: &updated)
         }
+        updated.captureForecasts(in: records, at: date)
         try commit { $0.sessions[index] = updated }
     }
 
@@ -422,6 +426,7 @@ final class TrainingRepository {
         } == true
         try commit {
             $0.sessions[index].completedAt = date
+            $0.sessions[index].forecastEvidenceAt = date
             $0.sessions[index].endedEarly = early || unfinished ? true : nil
             $0.sessions[index].workoutLog?.rest = nil
             $0.sessions[index].workoutLog?.undo = nil
@@ -539,6 +544,7 @@ extension TrainingRepository {
         let index = try sessionIndex(id)
         var session = records.sessions[index]
         guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
+        session.rememberForecastOutcomes()
         var log = try session.workoutLog ?? WorkoutLog(session: session)
         let originalPlan = session.plan
         var exercises = originalPlan.exercises
@@ -727,6 +733,12 @@ extension TrainingRepository {
         }
         session.workoutLog = log
         synchronizeResults(in: &session)
+        session.rememberForecastOutcomes()
+        switch change {
+        case .addExercise, .removeExercise, .moveExercise, .moveSet, .removeSet, .setSkipped, .skipExercise, .restoreExercise, .undoLast:
+            session.captureForecasts(in: records, at: date)
+        default: break
+        }
         if session != records.sessions[index] { try commit { $0.sessions[index] = session } }
     }
 

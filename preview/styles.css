@@ -282,6 +282,16 @@ h2 { font-size: 1.17rem; line-height: 1.2; letter-spacing: -.033em; font-weight:
 .progression-entry { display: grid; gap: .5rem; justify-items: start; }
 .progression-item { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
 .progression-item strong { overflow-wrap: anywhere; }
+.forecast-panel, .forecast-row { min-width: 0; border: 1px solid var(--border); border-radius: .75rem; padding: .15rem .7rem .35rem; background: var(--surface-soft); }
+.forecast-panel > summary, .forecast-row > summary, .forecast-evaluation summary { cursor: pointer; align-content: center; min-height: 44px; font-weight: 680; color: var(--accent-strong); }
+.forecast-panel > .forecast-row { margin-top: .4rem; background: var(--surface); }
+.forecast-content, .forecast-evaluation { display: grid; gap: .55rem; }
+.forecast-content { margin-block: .35rem .5rem; }
+.forecast-ranges { display: grid; gap: .4rem; margin: 0; }
+.forecast-ranges > div { display: grid; grid-template-columns: minmax(4rem, 1fr) minmax(0, 2fr); gap: .45rem; padding: .4rem .1rem; border-top: 1px solid var(--border); }
+.forecast-ranges dt { font-weight: 700; }
+.forecast-ranges dd { margin: 0; }
+.forecast-ranges small { display: block; color: var(--muted); }
 .history-results .progression-assessment { color: var(--accent-strong); font-weight: 700; }
 #progression-form { margin-top: .6rem; }
 #progression-form label[hidden], .progression-detail .entry-error:empty { display: none; }

@@ -1,6 +1,7 @@
 import { escapeHTML as html, filterExercises } from './exercises.js';
 import { hasReps, measurements, newest } from './routines.js';
-import { kilogramsPerPound } from './storage.js';
+import { kilogramsPerPound, localDayKey } from './storage.js';
+import { renderForecastPreview } from './forecast-ui.js';
 
 const button = (label, action, value, style = 'secondary') => `<button type="button" class="${style}" data-action="${action}"${value ? ` data-value="${html(value)}"` : ''}>${html(label)}</button>`;
 const opened = (expanded, id) => expanded.has(id) ? 'open' : '';
@@ -140,7 +141,7 @@ export function renderPlan(plan, unit) {
   }).join('')}</div>`;
 }
 
-export function renderPersonalRoutines(data, categoryID, unit, active, entry) {
+export function renderPersonalRoutines(data, categoryID, unit, active, entry, dateLabel) {
   const categories = Object.fromEntries([['', 'All categories'], ...data.categories.map(category => [category.id, category.name])]);
   const plans = data.routines.map(newest).filter(plan => !categoryID || plan.categoryID === categoryID);
   return `<div class="page-heading library-heading"><div><p class="eyebrow">Your training library</p><h1>Routines</h1></div>${button('New routine', 'plan-new', null, 'primary')}</div>
@@ -148,6 +149,7 @@ export function renderPersonalRoutines(data, categoryID, unit, active, entry) {
     <div class="stack">${plans.map(plan => `<article class="surface settings-card saved-routine">
       <h2>${html(plan.name)}</h2><p class="builder-hint">Version ${plan.revision}${plan.categoryID ? ` · ${html(categories[plan.categoryID])}` : ''}</p>
       ${renderPlan(plan, unit)}
+      ${renderForecastPreview(data, plan, { date: localDayKey() }, unit, dateLabel)}
       <div class="builder-actions">${button(active ? 'Resume workout' : 'Log workout', 'plan-start', plan.routineID, 'primary')}
         ${button('Schedule workout', 'plan-schedule', plan.routineID)}${button('Edit routine', 'plan-edit', plan.routineID)}${button('Duplicate routine', 'plan-duplicate', plan.routineID)}${button('Version history', 'plan-versions', plan.routineID)}${button('Review progression', 'progression-open', plan.routineID)}</div>
     </article>`).join('') || `<section class="surface settings-card"><h2>${categoryID ? 'No routines in this category' : 'No saved routines'}</h2></section>`}</div>`;

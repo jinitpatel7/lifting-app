@@ -20,6 +20,8 @@ Open **History → Progress** for exercise trends, records, and weekly set count
 
 Choose **Review progression** in History → Progress, routine options, or the finish summary. Select an exercise slot and configure how to progress it and what to do after a missed target. The review shows the planned targets, the recorded sets behind each suggestion, and any proposed targets. **Accept suggestion** saves a new routine version. **Override targets in routine editor** lets you choose the new targets yourself. Scheduled versions and workout history stay pinned to their saved plans.
 
+Open **Performance forecast preview** on a scheduled workout or a saved routine to see the expected range for the first straight working set of each exercise. Setline saves the issued forecast in the workout, where it remains available after corrections. **History → Progress → Forecast accuracy** compares the model with the previous comparable session. Forecasts describe expected performance and leave all routine targets under your control.
+
 Log bodyweight from **Today**. In **History → Progress**, edit past readings, review the trailing seven-day average, or set an optional weekly target rate. **History → Sessions → Calendar** also offers weigh-in editing for the selected date.
 
 Use **Add progress photos** after finishing a workout, or link photos from the selected date or workout in History. **Compare progress photos** shows two dates side by side. The iPhone app uses Photos to select originals or save a new camera photo. Setline keeps only the device references. Your personal iCloud Photos storage follows your own Photos sync settings. [Apple’s iCloud Photos documentation](https://support.apple.com/en-us/108782)

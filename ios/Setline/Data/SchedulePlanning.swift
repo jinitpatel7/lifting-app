@@ -256,10 +256,11 @@ extension TrainingRepository {
             throw TrainingDataError.invalidRecord("Start the rotation on its scheduled date, or move it to today.")
         }
         guard let version = records.version(entry.routineVersionID) else { throw TrainingDataError.unknownRecord("Scheduled routine not found.") }
-        let session = WorkoutSession(localDate: today, timeZoneIdentifier: timeZone.identifier, startedAt: date,
+        var session = WorkoutSession(localDate: today, timeZoneIdentifier: timeZone.identifier, startedAt: date,
             scheduleID: entry.id, routineSnapshot: version)
         try commit { next in
             storeSchedule(entry, in: &next)
+            session.captureForecasts(in: next, at: date)
             next.sessions.append(session)
         }
         return session

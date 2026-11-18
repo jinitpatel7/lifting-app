@@ -4,6 +4,7 @@ import { hasReps, measurements } from './routines.js';
 import { isBarbell, loadKey, previousResult, sessionInput, sessionPlan } from './workout-log.js';
 import { kilogramsPerPound } from './storage.js';
 import { clockText, plateOptions, typoHint, workoutSequence, workoutTimes } from './workout-tools.js';
+import { renderActiveForecast } from './forecast-ui.js';
 
 const action = (label, key, value, style = 'secondary') => `<button type="button" class="${style}" data-action="${key}"${value ? ` data-value="${value}"` : ''}>${html(label)}</button>`;
 const select = (label, id, choices) => `<label>${html(label)}<select id="${id}" aria-label="${html(label)}">${Object.entries(choices).map(([value, text]) => `<option value="${value}">${html(text)}</option>`).join('')}</select></label>`;
@@ -132,7 +133,7 @@ function setRow(session, history, exercise, row, set, index, unit, nextID) {
   </div>`;
 }
 
-export function renderWorkout(session, database, catalog, exercises, unit) {
+export function renderWorkout(session, database, catalog, exercises, unit, dateLabel) {
   const plan = sessionPlan(session);
   const log = session.log;
   const pending = log.exercises.flatMap(exercise => exercise.sets).filter(set => set.status === 'pending').length;
@@ -170,6 +171,7 @@ export function renderWorkout(session, database, catalog, exercises, unit) {
       const group = plan.groups.find(group => group.members[0] === exercise.id);
       if (!row) return '';
       return `<section class="log-exercise" data-log-exercise="${exercise.id}"><h3>${html(row.exercise.name)}</h3>
+        ${renderActiveForecast(session, row, unit, dateLabel)}
         ${group ? `<p class="plan-group-label">${html(group.kind)} · ${group.rounds} rounds · ${group.restExercises}s between exercises · ${group.restRounds}s between rounds</p>` : ''}
         <label class="log-notes">Exercise notes<textarea aria-label="Exercise notes" data-log-field="exerciseNotes" rows="2">${html(exercise.notes)}</textarea></label>
         <details data-log-disclosure="exercise-${exercise.id}"><summary>Exercise options</summary><div class="builder-actions">

@@ -18,6 +18,7 @@ import { createDevicePhotoStore, photoDates, requestDevicePhoto } from './device
 import { cancelPhotoPreviews, paintPhotoPreviews, renderManagePhotos, renderPhotoComparison } from './progress-photos-ui.js';
 import { readProgressionRule, renderProgressionDetail, renderProgressionList, updateProgressionFields } from './progression-ui.js';
 import { progressionRule, suggestProgression } from './progression.js';
+import { renderForecastEvaluation, renderForecastPreview } from './forecast-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -274,7 +275,7 @@ function exerciseCard(exercise, index) {
         </span>
         <span class="exercise-stats">
           <span><span class="stat-label">Previous best set</span><strong>${bestSet}</strong></span>
-          <span class="prediction"><span class="stat-label">${icon('spark', 15)} Progression</span><strong>Personal workouts only</strong></span>
+          <span class="prediction"><span class="stat-label">${icon('spark', 15)} Performance forecast</span><strong>Personal workouts only</strong></span>
         </span>
       </summary>
       <div class="advanced">
@@ -312,6 +313,7 @@ function todayPage() {
       <p class="eyebrow schedule-label">${summary.name}${summary.detail ? ' · ' + escapeHTML(summary.detail) : ''}</p><h2>${escapeHTML(version.name)}</h2>
       ${summary.block ? `<p class="chart-subtitle">${escapeHTML(summary.block.name)} · Week ${summary.index + 1} · ${summary.kind}${summary.notes ? ' · ' + escapeHTML(summary.notes) : ''}</p>` : ''}
       ${actionable || entry.status === 'active' ? renderPlan(version, state.unit) : ''}
+      ${['planned', 'rescheduled'].includes(entry.status) ? renderForecastPreview(state.planRecords, version, entry, state.unit, dateLabel) : ''}
       ${actionable && programContext(state.planRecords, { localDate: entry.date, scheduleID: entry.id }).kind !== 'deload' && newest(personalRoutine(version.routineID)).id === version.id ? `<button type="button" class="secondary" data-action="progression-open" data-value="${version.routineID}">Review progression</button>` : ''}
       ${(actionable && (!entry.rotationID || entry.date === today())) || entry.status === 'active' ? `<button type="button" class="primary" data-action="log-start-scheduled" data-value="${entry.key}">${label}</button>` : ''}
       ${actionable ? `<div class="schedule-nav"><button type="button" class="secondary" data-action="schedule-move" data-value="${entry.key}">Move session</button>
@@ -334,7 +336,7 @@ function routinesPage() {
   if (state.builder) return renderRoutineBuilder(state.builder, state.planRecords, catalog, state.exercises, state.unit);
   const entry = `<button type="button" class="surface routine-card library-entry" data-action="exercise-library">
     <span class="tile-icon">${icon('dumbbell', 22)}</span><strong>Exercise Library</strong><span class="round-arrow">${icon('chevron', 17)}</span></button>`;
-  if (!state.sampleMode) return renderPersonalRoutines(state.planRecords, state.routineCategory, state.unit, activePersonal(), entry);
+  if (!state.sampleMode) return renderPersonalRoutines(state.planRecords, state.routineCategory, state.unit, activePersonal(), entry, dateLabel);
   const routine = routineFor(state.routine);
   if (routine) return `<button type="button" class="back-button" data-action="routine" data-value="">${icon('arrow', 17)} All routines</button>${sectionTitle('Routines')}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine, 'Sample routine')}</div><div class="dashboard-side">${muscleMap(routine)}</div><div class="dashboard-exercises">${exercises(routine)}</div></div>`;
   return `${sectionTitle('Routines', 'Training library')}${entry}<p class="screen-description">Sample routines show how your own workouts will appear.</p><div class="routine-grid">${sample.routines.map((item, index) => `<button class="surface routine-card" type="button" data-action="routine" data-value="${item.id}"><span class="tile-icon ${index ? 'coral' : ''}">${icon('dumbbell', 24)}</span><span class="routine-description"><strong>${item.name}</strong><span>${item.exercises.length} exercises · ${item.minutes} min</span><span>${item.primaryMuscles}</span></span><span class="round-arrow">${icon('chevron', 17)}</span></button>`).join('')}</div>`;
@@ -368,6 +370,7 @@ function historyPage() {
     return heading + picker + compare + `<div class="stack session-list">${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
       ${renderBodyweight(state.user, state.unit, shortDate)}
       <section class="surface settings-card progression-entry"><h2>Exercise progression</h2><button type="button" class="secondary" data-action="progression-open">Review progression</button></section>
+      ${renderForecastEvaluation(state.planRecords, state.unit)}
       ${renderAnalytics(state.planRecords, state.historyView.filters, state.unit, state.analyticsView, libraryExercise,
         Object.fromEntries(Object.entries(anatomy?.regions ?? {}).map(([key, region]) => [key, region.name])), dateLabel)}</div>`;
   }
@@ -841,7 +844,7 @@ function showSession(trigger) {
   showDialog('active', routine.name, `<p class="dialog-description">Active workout preview · Sample routine</p><ul class="active-exercises">${routine.exercises.map(exercise => `<li><strong>${exercise.name}</strong><span>${exercise.sets} × ${exercise.reps} reps</span></li>`).join('')}</ul><p class="dialog-description">Switch to personal mode to record a workout.</p><button class="secondary end-button" type="button" data-action="end">End workout preview</button>`, trigger);
 }
 
-function workoutMarkup(session) { return renderWorkout(session, state.planRecords, catalog, state.exercises, state.unit); }
+function workoutMarkup(session) { return renderWorkout(session, state.planRecords, catalog, state.exercises, state.unit, dateLabel); }
 
 function paintWorkoutClocks() {
   const session = activePersonal();
@@ -903,7 +906,7 @@ function finishLogger(id, early) {
 
 function showFinishedWorkout(session) {
   if (!session) return;
-  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit) +
+  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit, dateLabel) +
     `<div class="builder-actions"><button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>
       ${state.planRecords.routines.length ? `<button type="button" class="secondary" data-action="progression-open" data-value="${personalRoutine(session.snapshot.routineID)?.id ?? ''}">Review progression</button>` : ''}</div>`, '.active-bar');
 }

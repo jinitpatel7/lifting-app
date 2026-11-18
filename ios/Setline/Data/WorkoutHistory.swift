@@ -393,6 +393,12 @@ extension TrainingRepository {
         session.workoutLog = log
         session.performedSets = result
         session.endedEarly = draft.incomplete ? true : nil
+        if let position {
+            let previous = records.sessions[position]
+            if previous.performedSets != result || previous.plan.exercises != session.plan.exercises {
+                session.forecastEvidenceAt = now
+            }
+        } else { session.forecastEvidenceAt = now }
         try commit { next in
             if let position { next.sessions[position] = session } else { next.sessions.append(session) }
         }

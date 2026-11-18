@@ -146,6 +146,7 @@ struct PersonalHistoryScreen: View {
         ForEach(visible) { session in
             PersonalStatus(title: session.plan.name, symbol: session.historyStatus == .completed ? "checkmark.circle" : "dumbbell") {
                 HistorySessionDetails(session: session, unit: unit)
+                WorkoutForecastArchive(session: session, unit: unit)
                 Text("Progress photos").font(.subheadline.weight(.semibold))
                 ProgressPhotoCollection(photos: model.records.photos.filter { $0.subject == .session(session.id) })
                 if session.completedAt != nil {
@@ -193,6 +194,7 @@ struct PersonalHistoryScreen: View {
         PersonalStatus(title: "Exercise progression", symbol: "chart.line.uptrend.xyaxis") {
             Button("Review progression") { presented = .progression }.buttonStyle(SecondaryButton())
         }
+        ForecastAccuracyCard(records: model.records, unit: unit)
         AnalyticsProgress(model: model, filter: filter, unit: unit)
     }
 }
@@ -471,6 +473,7 @@ struct HistoryFinishView: View {
                         HistoryChanges(comparison: WorkoutHistory.compare(session, previous, scope: scope), unit: unit, wholeWorkout: scope.exerciseID == nil)
                     }
                 } else { Text("No prior comparable session.") }
+                WorkoutForecastArchive(session: session, unit: unit)
                 Button("Add progress photos") { linking = true }
                     .sheet(isPresented: $linking) { ProgressPhotosSheet(model: model, day: session.localDate, sessionID: session.id) }
                 if !model.records.currentRoutines.isEmpty {

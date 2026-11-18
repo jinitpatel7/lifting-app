@@ -216,7 +216,7 @@ enum WorkoutAnalytics {
         context(on: occurrence.date, entry: occurrence.record, records: records)
     }
 
-    private static func context(on date: WorkoutDate, entry: ScheduledWorkout?, records: TrainingRecords) -> ProgramContext {
+    static func context(on date: WorkoutDate, entry: ScheduledWorkout?, records: TrainingRecords) -> ProgramContext {
         let fallback = records.programBlocks.filter { $0.firstDay <= date && date <= $0.lastDay }
         guard let block = records.programBlocks.first(where: { $0.id == entry?.programBlockID }) ?? (fallback.count == 1 ? fallback.first : nil) else {
             return ProgramContext()

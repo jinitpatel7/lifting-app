@@ -119,6 +119,9 @@ struct WorkoutLogger: View {
         ForEach(log.exercises.filter { !$0.queued }) { exercise in
             if let entry = session.plan.exercises.first(where: { $0.id == exercise.id }) {
                 Section(entry.variant.exercise.name) {
+                    if let forecast = session.performanceForecasts?.last(where: { $0.slotID == entry.id && $0.variant == entry.variant.key }) {
+                        ForecastDetails(forecast: forecast, unit: unit, label: "Performance forecast", saved: true)
+                    }
                     exerciseActions(session, exercise: exercise)
                     ForEach(exercise.rows) { row in
                         setRow(row, exercise: exercise, entry: entry, session: session, isNext: row.id == nextID)

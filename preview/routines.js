@@ -4,6 +4,7 @@ import { applyScheduleChange, scheduleEntry, scheduleVersion } from './schedule.
 import { invalidateHistoryPredictions, saveHistoryEntry } from './history.js';
 import { validateAnalytics } from './analytics.js';
 import { suggestProgression, validateProgressionRule } from './progression.js';
+import { captureForecasts } from './forecast.js';
 export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
@@ -156,6 +157,7 @@ export function createRoutineStore(storage) {
       localDate: localDayKey(now), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, completedAt: null,
       results: [], routineBaseID: source?.routineBaseID ?? snapshot.id };
     session.log = source ? repeatLog(workoutLog(source)) : workoutLog(session);
+    captureForecasts(data, session, now);
     data.sessions.push(session);
   }
 
@@ -284,6 +286,7 @@ export function createRoutineStore(storage) {
         }
         session.override = { ...prior, ...plan, categoryID: prior.categoryID };
         reconcileLog(session, prior, session.override);
+        captureForecasts(data, session, new Date());
       });
     },
     prepare(sessionID) {
@@ -295,7 +298,16 @@ export function createRoutineStore(storage) {
       });
     },
     logChange(sessionID, change, unit, now) {
-      return save(data => applyWorkoutChange(active(data, sessionID), change, unit, now));
+      return save(data => {
+        const session = active(data, sessionID);
+        const performed = new Set([...(session.forecastPerformedSlots ?? []), ...session.results.map(result => result.exerciseID)]);
+        applyWorkoutChange(session, change, unit, now);
+        session.results.forEach(result => performed.add(result.exerciseID));
+        if (performed.size) session.forecastPerformedSlots = [...performed];
+        if (['addExercise', 'moveExercise', 'removeExercise', 'skipSet', 'moveSet', 'removeSet', 'restoreSet', 'skipExercise', 'restoreExercise', 'undoLast'].includes(change.action)) {
+          captureForecasts(data, session, now ? new Date(now) : new Date());
+        }
+      });
     },
     updateRoutine(sessionID) {
       return save(data => {
@@ -316,6 +328,7 @@ export function createRoutineStore(storage) {
         const session = active(data, sessionID);
         session.endedEarly = early || session.log?.exercises.some(exercise => exercise.sets.some(set => set.status === 'pending')) || false;
         session.completedAt = now.toISOString();
+        session.forecastEvidenceAt = session.completedAt;
         session.finishedLocalDate = localDayKey(now, session.timeZone);
         if (session.log) Object.assign(session.log, { undo: null, rest: null });
       });

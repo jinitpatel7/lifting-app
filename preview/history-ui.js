@@ -12,6 +12,7 @@ import { kilogramsPerPound, localDayKey } from './storage.js';
 import { sessionPlan } from './workout-log.js';
 import { resultSummary } from './workout-ui.js';
 import { clockText, workoutTimes } from './workout-tools.js';
+import { renderForecastArchive } from './forecast-ui.js';
 
 const button = (name, action, value = '', extra = '') => `<button type="button" class="secondary" data-action="${action}" data-value="${html(value)}" ${extra}>${html(name)}</button>`;
 const option = (value, label, current) => `<option value="${html(value)}"${value === current ? ' selected' : ''}>${html(label)}</option>`;
@@ -103,6 +104,7 @@ export function historyCard(session, unit, active, photos, dateLabel) {
     ${planTally(session)}
     ${session.log?.notes ? `<p>${html(session.log.notes)}</p>` : ''}
     ${plan.exercises.map(row => historyExercise(session, row, unit, false)).join('')}
+    ${renderForecastArchive(session, unit, dateLabel)}
     ${session.snapshot.revision > 0 ? `<details><summary>Original routine prescription</summary>${renderPlan(session.snapshot, unit)}</details>` : ''}
     <section class="history-photos"><h4>Progress photos</h4>${renderPhotoArea(photos, dayOf(session), session.id, Boolean(session.completedAt))}</section>
     <div class="builder-actions">${session.completedAt ? button('Edit workout', 'history-edit', session.id) +
@@ -155,14 +157,14 @@ function changeSummary(comparison, unit, duration) {
     ${comparison.exercisesChanged ? '<p class="history-flag">Exercise selection differed</p>' : ''}</div>`;
 }
 
-export function renderFinishSummary(session, sessions, unit) {
+export function renderFinishSummary(session, sessions, unit, dateLabel) {
   const prior = priorComparable(session, sessions);
   return `<div class="stack history-summary"><p class="history-status">${sessionStatus(session)}</p>${renderHistoryMetrics(sessionMetrics(session), unit)}
     ${prior ? `<section class="log-panel"><h3>Since the previous ${prior.exerciseID ? 'comparable exercise' : 'workout with this routine'}</h3>
       <p>${html(sessionPlan(prior.other).name)} · ${dayOf(prior.other)}</p>
       ${changeSummary(compareSessions(session, prior.other, prior.exerciseID), unit, !prior.exerciseID)}</section>` :
       '<p class="builder-hint">No prior comparable session.</p>'}
-    ${button('View in history', 'history-view-finished', session.id)}</div>`;
+    ${renderForecastArchive(session, unit, dateLabel)}${button('View in history', 'history-view-finished', session.id)}</div>`;
 }
 
 export function renderComparison(session, candidates, selectedID, scopeID, unit) {

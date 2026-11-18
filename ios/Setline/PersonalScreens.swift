@@ -54,7 +54,7 @@ struct PersonalTodayScreen: View {
                 }
                 ForEach(planned) { workout in
                     if let version = records.version(workout.versionID) {
-                        scheduleCard(workout, version: version, today: today)
+                        scheduleCard(workout, version: version, today: today, now: context.date)
                     }
                 }
                 BodyweightCard(value: records.bodyweight(on: day)?.mass.kilograms, unit: unit,
@@ -91,7 +91,7 @@ struct PersonalTodayScreen: View {
         selectedDay = (anchor ?? today).key
     }
 
-    private func scheduleCard(_ workout: ScheduleOccurrence, version: RoutineVersion, today: WorkoutDate) -> some View {
+    private func scheduleCard(_ workout: ScheduleOccurrence, version: RoutineVersion, today: WorkoutDate, now: Date) -> some View {
         PersonalStatus(title: version.name, symbol: workout.status.symbol) {
             Label(workout.status.rawValue, systemImage: workout.status.symbol)
                 .font(.caption.weight(.semibold)).foregroundStyle(workout.status.tint)
@@ -109,6 +109,10 @@ struct PersonalTodayScreen: View {
                 if !week.notes.isEmpty { Text(week.notes).font(.subheadline) }
             }
             if workout.canChange || workout.status == .active { RoutinePlanRows(version: version, unit: unit) }
+            if workout.status == .planned || workout.status == .rescheduled {
+                WorkoutForecastPreview(plan: version, records: records, unit: unit, day: workout.date,
+                    deload: WorkoutAnalytics.context(for: workout, records: records).kind == .deload, now: now)
+            }
             if workout.canChange, records.currentRoutines.contains(where: { $0.id == version.id }),
                WorkoutAnalytics.context(for: workout, records: records).kind != .deload {
                 Button("Review progression") { reviewProgression(version.routineID) }.buttonStyle(SecondaryButton())
@@ -175,7 +179,7 @@ struct PersonalRoutinesScreen: View {
             let category = records.routineCategories?.first { $0.id == version.categoryID }
             let subtitle = ["Version \(version.revision)", category?.name].compactMap { $0 }.joined(separator: " · ")
             VStack(alignment: .leading, spacing: 5) {
-                PersonalRoutineCard(version: version, unit: unit, subtitle: subtitle, active: records.activeSession != nil) {
+                PersonalRoutineCard(version: version, records: records, unit: unit, subtitle: subtitle, active: records.activeSession != nil) {
                     start(version.id, nil)
                 }
                 Menu {
@@ -195,6 +199,7 @@ struct PersonalRoutinesScreen: View {
 
 struct PersonalRoutineCard: View {
     let version: RoutineVersion
+    let records: TrainingRecords
     let unit: WeightUnit
     let subtitle: String
     let active: Bool
@@ -204,6 +209,10 @@ struct PersonalRoutineCard: View {
         PersonalStatus(title: version.name, symbol: "dumbbell") {
             Text(subtitle).font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
             RoutinePlanRows(version: version, unit: unit)
+            let now = Date()
+            let day = WorkoutDate(now)
+            WorkoutForecastPreview(plan: version, records: records, unit: unit, day: day,
+                deload: WorkoutAnalytics.context(on: day, entry: nil, records: records).kind == .deload, now: now)
             Button(action: start) {
                 Label(active ? "Resume Workout" : "Log Workout", systemImage: active ? "chevron.right" : "play.fill")
             }
