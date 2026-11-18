@@ -1,4 +1,4 @@
-import { createBrowserStore, kilogramsPerPound, localDayKey } from './storage.js';
+import { createBrowserStore, isDay, kilogramsPerPound, localDayKey } from './storage.js';
 import { createExerciseStore, escapeHTML, exerciseEditor, readExerciseForm, renderExerciseDetail, renderLibrary,
   renderSearchResults, renderSubstitutions, renderSubstitutionResults } from './exercises.js';
 import { muscleInvolvement, renderMuscleMap } from './muscle-map.js';
@@ -12,6 +12,9 @@ import { readinessFields, renderMove, renderProgramWeek, renderReadiness, render
 import { comparisonScopes, dayOf, historyDraft, newHistorySet, priorComparable, sessionsByDate } from './history.js';
 import { calendarMonth, renderComparison, renderFinishSummary, renderHistoryEditor, renderHistoryFilters, renderHistorySessions } from './history-ui.js';
 import { readAnalyticsSettings, renderAnalytics } from './analytics-ui.js';
+import { renderBodyweight, renderWeightTarget } from './bodyweight-ui.js';
+import { createDevicePhotoStore, photoDates, requestDevicePhoto } from './device-photos.js';
+import { cancelPhotoPreviews, paintPhotoPreviews, renderManagePhotos, renderPhotoComparison } from './progress-photos-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -53,6 +56,7 @@ const storage = {
 const store = createBrowserStore(storage);
 const exerciseStore = createExerciseStore(storage);
 const routineStore = createRoutineStore(storage);
+const photoStore = createDevicePhotoStore(window.indexedDB);
 const tabs = [
   ['today', 'Today', 'Today / Log'], ['routines', 'Routines', 'Routines'],
   ['history', 'History', 'History / Progress'], ['settings', 'Settings', 'Settings'],
@@ -81,6 +85,7 @@ const state = {
   muscleRegion: '', muscleView: 'planned', calendarAnchor: null,
   planRecords: readStorage(routineStore.load, { categories: [], routines: [], sessions: [], schedule: [] }),
   builder: null, routineCategory: '',
+  photoLinks: [],
 };
 
 async function bundled(name) {
@@ -90,9 +95,10 @@ async function bundled(name) {
   } catch { return null; }
 }
 
-const [sample, catalogResource, anatomy] = await Promise.all([
-  bundled('SampleData.json'), bundled('ExerciseCatalog.json'), bundled('MuscleRegions.json'),
+const [sample, catalogResource, anatomy, links] = await Promise.all([
+  bundled('SampleData.json'), bundled('ExerciseCatalog.json'), bundled('MuscleRegions.json'), photoStore.list().catch(() => []),
 ]);
+state.photoLinks = links;
 const catalog = Array.isArray(catalogResource) ? catalogResource : [];
 const libraryItems = () => [...catalog, ...state.exercises.custom];
 const libraryExercise = id => libraryItems().find(exercise => exercise.id === id);
@@ -353,18 +359,12 @@ function historyPage() {
   const picker = `<div class="history-switch">${segment('history', [['progress', 'Progress'], ['sessions', 'Sessions']], state.history)}</div>`;
   const progress = state.history === 'progress';
   if (!state.sampleMode) {
-    if (!progress) return heading + picker + renderHistorySessions(state.planRecords, state.historyView, state.unit, activePersonal(), dateLabel);
-    const bodyweight = Object.values(state.user.entries).sort((a, b) => b.day.localeCompare(a.day));
-    const entries = bodyweight.length ? `
-      <section class="surface settings-card" aria-labelledby="bodyweight-history">
-        <div class="section-label"><span class="tile-icon small">${icon('scale', 18)}</span><h2 id="bodyweight-history">Bodyweight history</h2></div>
-        <ul class="active-exercises">${bodyweight.map(entry => `
-          <li><time datetime="${entry.day}">${dateLabel(entry.day, { year: 'numeric', month: 'short', day: 'numeric' })}</time>
-          <strong>${displayWeight(entry.kilograms)} ${state.unit}</strong></li>`).join('')}</ul>
-      </section>` : '';
-    return heading + picker + `<div class="stack session-list">${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
+    const compare = '<div class="history-photo-action"><button type="button" class="secondary" data-action="photos-compare">Compare progress photos</button></div>';
+    if (!progress) return heading + picker + compare + renderHistorySessions(state.planRecords, state.historyView, state.unit, activePersonal(), dateLabel, state.photoLinks, state.user);
+    return heading + picker + compare + `<div class="stack session-list">${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
+      ${renderBodyweight(state.user, state.unit, shortDate)}
       ${renderAnalytics(state.planRecords, state.historyView.filters, state.unit, state.analyticsView, libraryExercise,
-        Object.fromEntries(Object.entries(anatomy?.regions ?? {}).map(([key, region]) => [key, region.name])), dateLabel)}${entries}</div>`;
+        Object.fromEntries(Object.entries(anatomy?.regions ?? {}).map(([key, region]) => [key, region.name])), dateLabel)}</div>`;
   }
   const content = progress ? chart() : `<section class="stack session-list" aria-label="Sample sessions">${sample.history.map(entry => `<article class="surface session"><span class="tile-icon">${icon('dumbbell', 21)}</span><div><h2>${routineFor(entry.routineID).name}</h2><p>${entry.sets} sets · ${entry.minutes} min</p></div><span class="meta">${shortDate(entry.date)}</span></article>`).join('')}</section>`;
   return heading + picker + content;
@@ -410,6 +410,7 @@ function render({ scroll = false, focus = null } = {}) {
   renderHeader();
   const pages = { today: todayPage, routines: routinesPage, history: historyPage, settings: settingsPage };
   main.innerHTML = pages[state.tab]();
+  paintPhotoPreviews(main, state.photoLinks);
   renderDock();
   if (scroll) window.scrollTo(0, 0);
   if (focus) document.querySelector(focus)?.focus({ preventScroll: true });
@@ -424,14 +425,91 @@ function showDialog(type, title, body, trigger) {
   dialogTrigger = trigger;
   dialog.classList.toggle('workout-dialog', type === 'personal-workout');
   dialog.innerHTML = `<div class="dialog-header"><h2 id="dialog-title">${title}</h2><button type="button" class="icon-button" data-action="close" aria-label="Close">${icon('close', 20)}</button></div>${body}`;
+  paintPhotoPreviews(dialog, state.photoLinks);
   if (!dialog.open) dialog.showModal();
   dialog.querySelector('[autofocus]')?.focus();
 }
 
-function showWeight(trigger) {
-  const value = bodyweightValue();
+function showWeight(trigger, date = state.date) {
+  if (!isDay(date)) return;
+  const value = state.sampleMode ? state.preview.weights[date] : state.user.entries[date]?.kilograms;
   const entered = value ? Math.round(value / kilogramsPerUnit() * 10) / 10 : '';
-  showDialog('weight', 'Log bodyweight', `<p class="dialog-description">${state.sampleMode ? 'Sample entry · ' : ''}${longDate(state.date)}</p><form id="weight-form"><label for="weight-input">Bodyweight (${state.unit})</label><input id="weight-input" type="number" inputmode="decimal" name="weight" required min="0.1" step="0.1" value="${entered}" autofocus><div id="weight-error" role="alert"></div><button class="primary" type="submit">${icon('check', 19)} Save entry</button></form>`, trigger);
+  showDialog('weight', 'Log bodyweight', `<p class="dialog-description">${state.sampleMode ? 'Sample entry · ' : ''}${longDate(date)}</p><form id="weight-form" data-day="${date}"><label for="weight-input">Bodyweight (${state.unit})</label><input id="weight-input" type="number" inputmode="decimal" name="weight" required min="0.1" step="0.1" value="${entered}" autofocus><div id="weight-error" role="alert"></div><button class="primary" type="submit">${icon('check', 19)} Save entry</button></form>`, trigger);
+}
+
+let photoContext = null;
+let photoComparison = null;
+
+function showPhotoManager(trigger) {
+  showDialog('photos-manage', 'Progress photos', renderManagePhotos(state.photoLinks, photoContext, typeof window.showOpenFilePicker === 'function'), trigger);
+}
+
+function showPhotoComparison(trigger) {
+  showDialog('photos-compare', 'Compare progress photos', renderPhotoComparison(state.photoLinks, photoComparison, longDate), trigger);
+}
+
+async function handlePhotoAction(action, value, focus) {
+  const trigger = dialogTrigger ?? focus;
+  try {
+    switch (action) {
+      case 'photos-compare': {
+        const dates = photoDates(state.photoLinks);
+        const selected = state.historyView.day;
+        const second = dates.includes(selected) ? selected : dates.at(-1) ?? selected;
+        const first = dates.filter(day => day < second).at(-1) ?? dates.find(day => day !== second) ?? offsetDay(second, -7);
+        photoComparison = { first, second };
+        return showPhotoComparison(focus);
+      }
+      case 'photos-manage': {
+        const workout = personalSession(value);
+        const day = workout ? dayOf(workout) : value;
+        if (!isDay(day) || (workout && !workout.completedAt)) return;
+        photoContext = { day, sessionID: workout?.id ?? null, workout: workout && sessionPlan(workout).name, returnToFinish: dialogAction === 'history-finish' };
+        return showPhotoManager(trigger);
+      }
+      case 'photos-choose': {
+        const context = photoContext;
+        const handles = await window.showOpenFilePicker({
+          multiple: true,
+          types: [{ description: 'Photos', accept: { 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'image/webp': ['.webp'],
+            'image/heic': ['.heic', '.heif'], 'image/avif': ['.avif'] } }],
+        });
+        state.photoLinks = await photoStore.link(handles, context.day, context.sessionID);
+        render();
+        if (photoContext === context) showPhotoManager(trigger);
+        return announce('Progress photo links saved.');
+      }
+      case 'photos-allow': {
+        const link = state.photoLinks.find(item => item.id === value);
+        await requestDevicePhoto(link?.handle);
+        paintPhotoPreviews(main, state.photoLinks);
+        if (dialog.open) paintPhotoPreviews(dialog, state.photoLinks);
+        return;
+      }
+      case 'photos-remove':
+      case 'photos-cancel-remove':
+        photoContext.pendingRemove = action === 'photos-remove' ? value : null;
+        return showPhotoManager(trigger);
+      case 'photos-confirm-remove': {
+        const context = photoContext;
+        if (context?.pendingRemove !== value) return;
+        state.photoLinks = await photoStore.unlink(value);
+        context.pendingRemove = null;
+        render();
+        if (photoContext === context) showPhotoManager(trigger);
+        return;
+      }
+      case 'photos-back-finish':
+        photoContext = null;
+        return showFinishedWorkout(personalSession(value));
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    const notice = dialog.querySelector('#photo-error');
+    const message = error.name === 'NotAllowedError' || error.name === 'SecurityError' ? 'Photo access is off.' : 'The photo link could not be saved or opened.';
+    if (notice) notice.textContent = message;
+    else announce(message);
+  }
 }
 
 let rotationDraft = [];
@@ -759,9 +837,14 @@ function refreshWorkout() {
 function finishLogger(id, early) {
   state.planRecords = routineStore.finish(id, early);
   render();
-  const session = personalSession(id);
-  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit), '.active-bar');
+  showFinishedWorkout(personalSession(id));
   announce(early ? 'Workout saved as ended early.' : 'Workout finished.');
+}
+
+function showFinishedWorkout(session) {
+  if (!session) return;
+  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit) +
+    `<button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>`, '.active-bar');
 }
 
 function confirmLog(message, label, action, value = '') {
@@ -1202,6 +1285,10 @@ document.addEventListener('click', event => {
     handleHistoryAction(action, value, target, focus);
     return;
   }
+  if (action.startsWith('photos-')) {
+    void handlePhotoAction(action, value, focus);
+    return;
+  }
   if (action.startsWith('analytics-')) {
     const view = state.analyticsView;
     if (action === 'analytics-save') {
@@ -1268,7 +1355,13 @@ document.addEventListener('click', event => {
       break;
     case 'routine': state.routine = value || null; render({ scroll: true, focus: '#main' }); break;
     case 'history': state.history = value; render({ focus }); break;
-    case 'weight': showWeight(focus); break;
+    case 'weight': showWeight(focus, value || state.date); break;
+    case 'weight-history': {
+      const date = main.querySelector('#history-weight-date');
+      if (date.value && date.reportValidity()) showWeight(focus, date.value);
+      break;
+    }
+    case 'weight-target': showDialog('weight-target', 'Bodyweight target', renderWeightTarget(state.user.targetKgPerWeek, state.unit), focus); break;
     case 'log':
       try {
         if (!activePreview()) {
@@ -1304,11 +1397,24 @@ dialog.addEventListener('close', () => {
   exerciseDraft = null;
   historyEdit = null;
   historyComparison = null;
+  photoContext = null;
+  photoComparison = null;
+  cancelPhotoPreviews(dialog);
   if (wasWorkout && activePersonal() && state.tab === 'today') render();
   if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
 });
 dialog.addEventListener('change', event => {
   const field = event.target;
+  if (dialogAction === 'photos-compare') {
+    const side = field.dataset.photoDate;
+    const selection = field.dataset.photoChoice;
+    if (side && isDay(field.value)) { photoComparison[side] = field.value; photoComparison[side + 'ID'] = null; }
+    else if (selection) photoComparison[selection + 'ID'] = field.value;
+    else return;
+    showPhotoComparison(dialogTrigger);
+    dialog.querySelector(side ? `[data-photo-date="${side}"]` : `[data-photo-choice="${selection}"]`)?.focus();
+    return;
+  }
   if (dialogAction === 'history-edit') {
     if (field.dataset.historyDraft === 'versionID') {
       const base = historyDraft(null, personalVersion(field.value), historyEdit.day, state.unit);
@@ -1383,6 +1489,20 @@ dialog.addEventListener('input', event => {
   } catch (error) { planError(error); }
 });
 dialog.addEventListener('submit', event => {
+  if (dialogAction === 'weight-target') {
+    event.preventDefault();
+    const input = dialog.querySelector('#weight-target-input');
+    if (!input.reportValidity()) return;
+    try {
+      const unchanged = input.value === event.target.dataset.original;
+      const value = unchanged ? state.user.targetKgPerWeek : input.value ? input.valueAsNumber * kilogramsPerUnit() : null;
+      state.user = store.saveWeightTarget(value);
+      dialog.close();
+      render();
+      announce('Target rate saved.');
+    } catch (error) { dialog.querySelector('#weight-target-error').textContent = error.message; }
+    return;
+  }
   if (dialogAction === 'exercise' && exerciseDraft) {
     event.preventDefault();
     const { draft, editing } = exerciseDraft;
@@ -1406,14 +1526,15 @@ dialog.addEventListener('submit', event => {
   if (!input.reportValidity()) return;
   const value = input.valueAsNumber;
   if (!Number.isFinite(value) || value <= 0) return;
-  const existing = bodyweightValue();
+  const date = event.target.dataset.day;
+  const existing = state.sampleMode ? state.preview.weights[date] : state.user.entries[date]?.kilograms;
   const kilograms = existing && Math.round(existing / kilogramsPerUnit() * 10) / 10 === value
     ? existing : value * kilogramsPerUnit();
   try {
     if (state.sampleMode) {
-      savePreview({ ...state.preview, weights: { ...state.preview.weights, [state.date]: kilograms } });
+      savePreview({ ...state.preview, weights: { ...state.preview.weights, [date]: kilograms } });
     } else {
-      state.user = store.saveWeight(state.date, kilograms);
+      state.user = store.saveWeight(date, kilograms);
     }
     dialog.close();
     render();
@@ -1421,4 +1542,10 @@ dialog.addEventListener('submit', event => {
   } catch {
     dialog.querySelector('#weight-error').textContent = 'Your entry could not be saved in this browser.';
   }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  paintPhotoPreviews(main, state.photoLinks);
+  if (dialog.open) paintPhotoPreviews(dialog, state.photoLinks);
 });

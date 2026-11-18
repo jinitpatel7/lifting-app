@@ -4,9 +4,10 @@ import SwiftUI
 @MainActor
 struct SetlineApp: App {
     @State private var model = TrainingModel()
+    @StateObject private var photoAccess = ProgressPhotoAccess()
 
     var body: some Scene {
-        WindowGroup { SetlineRoot(model: model) }
+        WindowGroup { SetlineRoot(model: model).environmentObject(photoAccess) }
     }
 }
 
@@ -309,7 +310,7 @@ struct SetlineRoot: View {
     }
 }
 
-private struct WeightSheet: View {
+struct WeightSheet: View {
     let model: TrainingModel
     let date: String
     let unit: WeightUnit
@@ -370,7 +371,7 @@ private struct WorkoutSheet: View {
 
     var body: some View {
         if let finished, let session = model.records.sessions.first(where: { $0.id == finished }) {
-            HistoryFinishView(session: session, sessions: model.records.sessions, unit: unit, viewHistory: viewHistory)
+            HistoryFinishView(model: model, session: session, sessions: model.records.sessions, unit: unit, viewHistory: viewHistory)
         } else if !sampleMode && model.records.activeSession != nil {
             WorkoutLogger(model: model, unit: unit) { finished = $0 }
         } else {

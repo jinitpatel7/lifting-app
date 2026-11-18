@@ -2,6 +2,9 @@ import { escapeHTML as html } from './exercises.js';
 import { comparisonScopes, compareSessions, dayOf, equipmentKey, equipmentName, historyFilter, historyRows,
   priorComparable, sessionMetrics, sessionStatus } from './history.js';
 import { completedCounts, plannedCounts } from './analytics.js';
+import { bodyweightOn } from './bodyweight-ui.js';
+import { photoDates } from './device-photos.js';
+import { renderPhotoArea } from './progress-photos-ui.js';
 import { offsetDay, weekdayOf } from './schedule.js';
 import { renderPlan, setSummary } from './routine-ui.js';
 import { hasReps, measurements } from './routines.js';
@@ -41,11 +44,12 @@ export function calendarMonth(day, shift = 0) {
   return base.toISOString().slice(0, 10);
 }
 
-export function renderHistoryCalendar(sessions, month, day, format) {
+export function renderHistoryCalendar(sessions, month, day, format, photos, readings) {
   const first = calendarMonth(month);
   const last = offsetDay(calendarMonth(first, 1), -1);
   const items = [];
   const status = new Map();
+  const linked = new Set(photoDates(photos));
   for (const session of sessions) {
     const date = dayOf(session);
     const prior = status.get(date) ?? [];
@@ -58,9 +62,11 @@ export function renderHistoryCalendar(sessions, month, day, format) {
     const rest = workouts.length - count;
     const visible = String(Number(date.slice(8)));
     const label = visible + ' · ' + format(date, { weekday: 'long', month: 'long', day: 'numeric' }) +
-      (workouts.length ? ', ' + [count ? count + ' completed' : '', rest ? rest + ' incomplete' : ''].filter(Boolean).join(', ') : ', no workouts');
+      (workouts.length ? ', ' + [count ? count + ' completed' : '', rest ? rest + ' incomplete' : ''].filter(Boolean).join(', ') : ', no workouts') +
+      (linked.has(date) ? ', progress photos' : '') + (readings[date] ? ', bodyweight reading' : '');
     items.push(`<button type="button" class="history-day" data-action="history-day" data-value="${date}" aria-label="${html(label)}" aria-pressed="${date === day}" ${date === localDayKey() ? 'aria-current="date"' : ''}>
-      <span>${visible}</span><span class="history-day-dots" aria-hidden="true">${count ? '<i class="has-completed"></i>' : ''}${rest ? '<i class="has-incomplete"></i>' : ''}</span></button>`);
+      <span>${visible}</span><span class="history-day-dots" aria-hidden="true">${count ? '<i class="has-completed"></i>' : ''}${rest ? '<i class="has-incomplete"></i>' : ''}
+      ${linked.has(date) ? '<i class="has-photo"></i>' : ''}${readings[date] ? '<i class="has-weight"></i>' : ''}</span></button>`);
   }
   return `<section class="surface settings-card history-month"><div class="section-top"><h2>${format(first, { month: 'long', year: 'numeric' })}</h2>
     <div class="builder-actions">${button('Previous month', 'history-month', '-1')}${button('Next month', 'history-month', '1')}</div></div>
@@ -88,13 +94,6 @@ function historyExercise(session, row, unit, compact) {
       '<p class="builder-hint">No performed sets.</p>'}</div>`;
 }
 
-function photosArea(session, photos) {
-  const linked = (photos ?? []).filter(photo => photo.sessionID === session.id);
-  return `<section class="history-photos"><h4>Progress photos</h4>${linked.length ?
-    `<ul>${linked.map(photo => `<li>${html(photo.name ?? 'Linked photo')} · ${html(photo.date ?? dayOf(session))}</li>`).join('')}</ul>` :
-    '<p class="builder-hint">No linked progress photos.</p>'}</section>`;
-}
-
 export function historyCard(session, unit, active, photos, dateLabel) {
   const plan = sessionPlan(session);
   return `<article class="surface settings-card saved-routine history-card"><h3>${html(plan.name)}</h3>
@@ -105,7 +104,7 @@ export function historyCard(session, unit, active, photos, dateLabel) {
     ${session.log?.notes ? `<p>${html(session.log.notes)}</p>` : ''}
     ${plan.exercises.map(row => historyExercise(session, row, unit, false)).join('')}
     ${session.snapshot.revision > 0 ? `<details><summary>Original routine prescription</summary>${renderPlan(session.snapshot, unit)}</details>` : ''}
-    ${photosArea(session, photos)}
+    <section class="history-photos"><h4>Progress photos</h4>${renderPhotoArea(photos, dayOf(session), session.id, Boolean(session.completedAt))}</section>
     <div class="builder-actions">${session.completedAt ? button('Edit workout', 'history-edit', session.id) +
       button('Compare sessions', 'history-compare', session.id) + (active ? '' : button('Repeat workout', 'plan-repeat', session.id)) :
       button('Resume workout', 'active')}</div></article>`;
@@ -123,7 +122,7 @@ function historyTime(session) {
   return `Elapsed ${clockText(times.elapsed)} · Active ${clockText(times.active)} · Paused ${clockText(times.paused)}`;
 }
 
-export function renderHistorySessions(data, state, unit, active, format) {
+export function renderHistorySessions(data, state, unit, active, format, photos, user) {
   const filtered = historyFilter(data.sessions, state.filters);
   const calendar = state.layout === 'calendar';
   const recent = filtered.filter(session => !calendar || dayOf(session) === state.day);
@@ -133,9 +132,11 @@ export function renderHistorySessions(data, state, unit, active, format) {
       ${button('Chronological list', 'history-layout', 'list', `aria-pressed="${!calendar}"`)}
       ${button('Calendar', 'history-layout', 'calendar', `aria-pressed="${calendar}"`)}
       ${button('Add missed workout', 'history-add')}</div>
-    ${calendar ? renderHistoryCalendar(filtered, state.month, state.day, format) : ''}
-    ${calendar ? `<h2>${html(dateLabel(state.day))}</h2>` : ''}
-    ${recent.length ? recent.map(session => historyCard(session, unit, active, data.photos, dateLabel)).join('') :
+    ${calendar ? renderHistoryCalendar(filtered, state.month, state.day, format, photos, user.entries) : ''}
+    ${calendar ? `<h2>${html(dateLabel(state.day))}</h2><section class="surface settings-card history-date-details"><h3>Date details</h3>
+      ${bodyweightOn(user.entries[state.day], state.day, unit)}
+      <h4>Date progress photos</h4>${renderPhotoArea(photos, state.day, null, state.day <= localDayKey())}</section>` : ''}
+    ${recent.length ? recent.map(session => historyCard(session, unit, active, photos, dateLabel)).join('') :
       `<section class="surface settings-card"><h3>${calendar ? 'No workouts on this date' : 'No matching workouts'}</h3><p class="builder-hint">${Object.values(state.filters).some(Boolean) ? 'Try adjusting your filters.' : 'Recorded workouts appear here.'}</p></section>`}
   </div>`;
 }

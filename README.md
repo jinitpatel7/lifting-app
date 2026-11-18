@@ -18,9 +18,13 @@ Open **History → Sessions** for the calendar or chronological list. Use **Add 
 
 Open **History → Progress** for exercise trends, records, and weekly set counts. Switch between working sets and warm-ups. **Analytics settings** controls visible metrics, weekly dashboard statistics, and the criteria for possible plateau flags.
 
+Log bodyweight from **Today**. In **History → Progress**, edit past readings, review the trailing seven-day average, or set an optional weekly target rate. **History → Sessions → Calendar** also offers weigh-in editing for the selected date.
+
+Use **Add progress photos** after finishing a workout, or link photos from the selected date or workout in History. **Compare progress photos** shows two dates side by side. The iPhone app uses Photos to select originals or save a new camera photo. Setline keeps only the device references. Your personal iCloud Photos storage follows your own Photos sync settings. [Apple’s iCloud Photos documentation](https://support.apple.com/en-us/108782)
+
 ## Open the preview
 
-Run `npm run dev` from this folder. The Node.js preview stores routines, workout plans, weights, and preferences in the browser and includes the separate sample mode. [Open the local preview](http://127.0.0.1:4173/)
+Run `npm run dev` from this folder. The Node.js preview stores routines, workout plans, weights, and preferences in the browser and includes the separate sample mode. Photo linking uses a supported local file picker, such as Chrome’s on desktop. Camera capture uses the iPhone app. [Open the local preview](http://127.0.0.1:4173/)
 
 On a Mac with Xcode 16 or later, open `ios/Setline.xcodeproj`, select the **Setline** scheme and an iPhone simulator, then run. The deployment target is iOS 17.
 

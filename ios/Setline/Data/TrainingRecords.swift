@@ -355,6 +355,7 @@ struct DevicePhotoReference: Codable, Equatable, Identifiable {
     let location: PhotoLocation
     var subject: PhotoSubject? = nil
     var createdAt = Date()
+    var localDate: WorkoutDate? = nil
 }
 
 struct FuturePrediction: Codable, Equatable, Identifiable {

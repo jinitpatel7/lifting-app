@@ -33,6 +33,9 @@
 		100000000000000000000125 /* HistoryScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000226 /* HistoryScreens.swift */; };
 		100000000000000000000126 /* WorkoutAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000227 /* WorkoutAnalytics.swift */; };
 		100000000000000000000127 /* AnalyticsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000228 /* AnalyticsScreen.swift */; };
+		100000000000000000000128 /* BodyweightProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000229 /* BodyweightProgress.swift */; };
+		100000000000000000000129 /* BodyweightScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000230 /* BodyweightScreen.swift */; };
+		100000000000000000000130 /* ProgressPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000231 /* ProgressPhotos.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -64,6 +67,10 @@
 		100000000000000000000226 /* HistoryScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryScreens.swift; sourceTree = "<group>"; };
 		100000000000000000000227 /* WorkoutAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WorkoutAnalytics.swift; path = Data/WorkoutAnalytics.swift; sourceTree = "<group>"; };
 		100000000000000000000228 /* AnalyticsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsScreen.swift; sourceTree = "<group>"; };
+		100000000000000000000229 /* BodyweightProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BodyweightProgress.swift; path = Data/BodyweightProgress.swift; sourceTree = "<group>"; };
+		100000000000000000000230 /* BodyweightScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyweightScreen.swift; sourceTree = "<group>"; };
+		100000000000000000000231 /* ProgressPhotos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressPhotos.swift; sourceTree = "<group>"; };
+		100000000000000000000232 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -105,6 +112,10 @@
 				100000000000000000000226 /* HistoryScreens.swift */,
 				100000000000000000000227 /* WorkoutAnalytics.swift */,
 				100000000000000000000228 /* AnalyticsScreen.swift */,
+				100000000000000000000229 /* BodyweightProgress.swift */,
+				100000000000000000000230 /* BodyweightScreen.swift */,
+				100000000000000000000231 /* ProgressPhotos.swift */,
+				100000000000000000000232 /* Info.plist */,
 				100000000000000000000403 /* Resources */,
 			);
 			path = Setline;
@@ -212,6 +223,9 @@
 				100000000000000000000125 /* HistoryScreens.swift in Sources */,
 				100000000000000000000126 /* WorkoutAnalytics.swift in Sources */,
 				100000000000000000000127 /* AnalyticsScreen.swift in Sources */,
+				100000000000000000000128 /* BodyweightProgress.swift in Sources */,
+				100000000000000000000129 /* BodyweightScreen.swift in Sources */,
+				100000000000000000000130 /* ProgressPhotos.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -224,6 +238,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Setline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Setline;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -242,6 +257,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Setline/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Setline;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

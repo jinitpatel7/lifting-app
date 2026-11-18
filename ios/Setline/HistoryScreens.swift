@@ -1,14 +1,17 @@
 import SwiftUI
-import UIKit
 
 private enum HistorySheet: Identifiable {
-    case add(WorkoutDate), edit(UUID), compare(UUID)
+    case add(WorkoutDate), edit(UUID), compare(UUID), weight(WorkoutDate)
+    case photos(WorkoutDate, UUID?), comparePhotos(WorkoutDate)
 
     var id: String {
         switch self {
         case .add(let day): "add-\(day.key)"
         case .edit(let id): "edit-\(id.uuidString)"
         case .compare(let id): "compare-\(id.uuidString)"
+        case .weight(let day): "weight-\(day.key)"
+        case .photos(let day, let session): "photos-\(day.key)-\(session?.uuidString ?? "date")"
+        case .comparePhotos(let day): "compare-photos-\(day.key)"
         }
     }
 }
@@ -35,6 +38,7 @@ struct PersonalHistoryScreen: View {
         VStack(spacing: 14) {
             PageHeading(title: "History", subtitle: "Your training progress")
             SelectionControl(label: "History view", selection: $selection, options: HistoryScreen.Section.allCases, title: \.rawValue)
+            Button("Compare progress photos") { presented = .comparePhotos(day) }.buttonStyle(SecondaryButton())
             filters
             if selection == .progress { progress }
             else { sessions }
@@ -55,6 +59,12 @@ struct PersonalHistoryScreen: View {
                 if let session = model.records.sessions.first(where: { $0.id == id }) {
                     HistoryComparisonSheet(session: session, sessions: model.records.sessions, unit: unit)
                 }
+            case .weight(let date):
+                WeightSheet(model: model, date: date.key, unit: unit, sampleMode: false)
+            case .photos(let date, let session):
+                ProgressPhotosSheet(model: model, day: date, sessionID: session)
+            case .comparePhotos(let date):
+                ProgressPhotoComparisonSheet(model: model, selected: date)
             }
         }
     }
@@ -119,8 +129,10 @@ struct PersonalHistoryScreen: View {
         Button("Add missed workout") { presented = .add(layout == .calendar ? min(day, WorkoutDate(Date())) : WorkoutDate(Date())) }
             .buttonStyle(SecondaryButton())
         if layout == .calendar {
-            HistoryCalendar(month: $month, selected: $day, sessions: entries)
+            HistoryCalendar(month: $month, selected: $day, sessions: entries,
+                photoDates: Set(model.records.progressPhotoDates), weightDates: Set(model.records.bodyweightEntries.map(\.localDate)))
             Text(day.formatted(.dateTime.year().month(.wide).day())).font(.headline)
+            dateDetails
         }
         let visible = layout == .calendar ? entries.filter { $0.localDate == day } : entries
         if visible.isEmpty {
@@ -130,11 +142,35 @@ struct PersonalHistoryScreen: View {
         }
         ForEach(visible) { session in
             PersonalStatus(title: session.plan.name, symbol: session.historyStatus == .completed ? "checkmark.circle" : "dumbbell") {
-                HistorySessionDetails(session: session, unit: unit, photos: model.records.photos)
+                HistorySessionDetails(session: session, unit: unit)
+                Text("Progress photos").font(.subheadline.weight(.semibold))
+                ProgressPhotoCollection(photos: model.records.photos.filter { $0.subject == .session(session.id) })
+                if session.completedAt != nil {
+                    Button("Link workout photos") { presented = .photos(session.localDate, session.id) }.buttonStyle(SecondaryButton())
+                }
                 ViewThatFits(in: .horizontal) {
                     HStack { actions(session) }
                     VStack(alignment: .leading) { actions(session) }
                 }
+            }
+        }
+    }
+
+    private var dateDetails: some View {
+        PersonalStatus(title: "Date details", symbol: "calendar") {
+            let weight = model.records.bodyweight(on: day)
+            if let weight {
+                Text("Bodyweight · \(unit.display(weight.mass.kilograms, fractionDigits: 1...2)) \(unit.rawValue)").font(.subheadline)
+            } else {
+                Text("No bodyweight reading").font(.caption).foregroundStyle(Palette.muted)
+            }
+            if day <= WorkoutDate(Date()) {
+                Button(weight == nil ? "Log bodyweight" : "Edit bodyweight") { presented = .weight(day) }.buttonStyle(SecondaryButton())
+            }
+            Text("Date progress photos").font(.subheadline.weight(.semibold))
+            ProgressPhotoCollection(photos: model.records.progressPhotos(on: day).filter { $0.subject == nil })
+            if day <= WorkoutDate(Date()) {
+                Button("Link date photos") { presented = .photos(day, nil) }.buttonStyle(SecondaryButton())
             }
         }
     }
@@ -150,16 +186,8 @@ struct PersonalHistoryScreen: View {
     }
 
     @ViewBuilder private var progress: some View {
+        BodyweightProgressCard(model: model, unit: unit) { presented = .weight($0) }
         AnalyticsProgress(model: model, filter: filter, unit: unit)
-        if !model.records.bodyweightEntries.isEmpty {
-            PersonalStatus(title: "Bodyweight history", symbol: "scalemass") {
-                ForEach(model.records.bodyweightEntries.sorted { $0.localDate > $1.localDate }) { entry in
-                    LabeledContent(entry.localDate.formatted(.dateTime.year().month(.abbreviated).day()),
-                                   value: "\(unit.display(entry.mass.kilograms, fractionDigits: 1...1)) \(unit.rawValue)")
-                        .font(.subheadline)
-                }
-            }
-        }
     }
 }
 
@@ -167,6 +195,8 @@ private struct HistoryCalendar: View {
     @Binding var month: WorkoutDate
     @Binding var selected: WorkoutDate
     let sessions: [WorkoutSession]
+    let photoDates: Set<WorkoutDate>
+    let weightDates: Set<WorkoutDate>
 
     private var calendar: Calendar {
         var result = Calendar(identifier: .gregorian)
@@ -220,6 +250,8 @@ private struct HistoryCalendar: View {
                 HStack(spacing: 3) {
                     if completed > 0 { Circle().fill(selected == date ? .white : .green).frame(width: 5, height: 5) }
                     if incomplete > 0 { Rectangle().fill(selected == date ? .white : Palette.red).frame(width: 5, height: 5) }
+                    if photoDates.contains(date) { Image(systemName: "photo").font(.system(size: 7)) }
+                    if weightDates.contains(date) { Image(systemName: "scalemass").font(.system(size: 7)) }
                 }.frame(height: 5)
             }
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -227,7 +259,8 @@ private struct HistoryCalendar: View {
             .background(date == selected ? Palette.action : Palette.soft, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(short) · \(date.formatted(.dateTime.month(.wide).day())), \(workouts.isEmpty ? "no workouts" : "\(completed) completed and \(incomplete) incomplete")")
+        .accessibilityLabel("\(short) · \(date.formatted(.dateTime.month(.wide).day())), \(workouts.isEmpty ? "no workouts" : "\(completed) completed and \(incomplete) incomplete")"
+            + (photoDates.contains(date) ? ", progress photos" : "") + (weightDates.contains(date) ? ", bodyweight reading" : ""))
         .accessibilityAddTraits(date == selected ? .isSelected : [])
     }
 }
@@ -235,7 +268,6 @@ private struct HistoryCalendar: View {
 private struct HistorySessionDetails: View {
     let session: WorkoutSession
     let unit: WeightUnit
-    let photos: [DevicePhotoReference]
 
     var body: some View {
         let revision = session.routineSnapshot.revision
@@ -252,7 +284,6 @@ private struct HistorySessionDetails: View {
             DisclosureGroup("Original routine prescription") { RoutinePlanRows(version: session.routineSnapshot, unit: unit) }
                 .font(.subheadline)
         }
-        HistoryPhotos(sessionID: session.id, photos: photos)
     }
 }
 
@@ -309,26 +340,6 @@ private func singleSet(_ prescription: SetPrescription) -> SetPrescription {
     var result = prescription
     result.sets = 1
     return result
-}
-
-private struct HistoryPhotos: View {
-    let sessionID: UUID
-    let photos: [DevicePhotoReference]
-
-    var body: some View {
-        let links = photos.filter { $0.subject == .session(sessionID) }
-        Text("Progress photos").font(.subheadline.weight(.semibold))
-        if links.isEmpty { Text("No linked progress photos.").font(.caption).foregroundStyle(Palette.muted) }
-        ForEach(links) { photo in
-            if case .appFile(let relativePath) = photo.location, photo.location.isValid,
-               let base = try? TrainingFiles.applicationSupport().directory,
-               let thumbnail = UIImage(contentsOfFile: base.appendingPathComponent(relativePath).path) {
-                Image(uiImage: thumbnail).resizable().scaledToFit().frame(maxHeight: 180).accessibilityLabel("Linked progress photo")
-            }
-            Label("Linked photo · \(photo.createdAt.formatted(date: .abbreviated, time: .omitted))", systemImage: "photo")
-                .font(.caption).foregroundStyle(Palette.muted)
-        }
-    }
 }
 
 private struct HistoryMetricsRows: View {
@@ -432,11 +443,13 @@ private struct HistoryComparisonSheet: View {
 }
 
 struct HistoryFinishView: View {
+    let model: TrainingModel
     let session: WorkoutSession
     let sessions: [WorkoutSession]
     let unit: WeightUnit
     let viewHistory: (WorkoutDate) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var linking = false
 
     var body: some View {
         NavigationStack {
@@ -451,6 +464,8 @@ struct HistoryFinishView: View {
                         HistoryChanges(comparison: WorkoutHistory.compare(session, previous, scope: scope), unit: unit, wholeWorkout: scope.exerciseID == nil)
                     }
                 } else { Text("No prior comparable session.") }
+                Button("Add progress photos") { linking = true }
+                    .sheet(isPresented: $linking) { ProgressPhotosSheet(model: model, day: session.localDate, sessionID: session.id) }
                 Button("View in history") { viewHistory(session.localDate) }
             }
             .navigationTitle("Workout summary")

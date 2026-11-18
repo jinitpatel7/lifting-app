@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Take a progress photo when you choose to link one to your training.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Show previews of the device photos you link to training dates and workouts.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Save the progress photo you take to your Photos library.</string>
+    <key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+    <true/>
+</dict>
+</plist>

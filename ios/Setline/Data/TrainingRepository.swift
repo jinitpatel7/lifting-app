@@ -18,6 +18,7 @@ struct TrainingRecords: Codable, Equatable {
     var weekdayRules: [WeekdayAssignment]? = nil
     var rotations: [RoutineRotation]? = nil
     var analyticsSettings: AnalyticsSettings? = nil
+    var bodyweightTargetKgPerWeek: Double? = nil
 
     var activeSession: WorkoutSession? { sessions.first { $0.completedAt == nil } }
     var currentRoutines: [RoutineVersion] {

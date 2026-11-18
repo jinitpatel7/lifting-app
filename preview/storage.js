@@ -75,6 +75,14 @@ export function createBrowserStore(storage) {
       write(userKey, user);
       return user;
     },
+    saveWeightTarget: kilogramsPerWeek => {
+      if (kilogramsPerWeek != null && !Number.isFinite(kilogramsPerWeek)) throw new Error('Enter a valid weekly rate of change.');
+      const user = loadUser();
+      if (kilogramsPerWeek == null) delete user.targetKgPerWeek;
+      else user.targetKgPerWeek = kilogramsPerWeek;
+      write(userKey, user);
+      return user;
+    },
   };
 }
 
