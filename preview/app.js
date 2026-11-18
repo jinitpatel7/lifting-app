@@ -2,6 +2,8 @@ import { createBrowserStore, kilogramsPerPound, localDayKey } from './storage.js
 import { createExerciseStore, escapeHTML, exerciseEditor, readExerciseForm, renderExerciseDetail, renderLibrary,
   renderSearchResults, renderSubstitutions, renderSubstitutionResults } from './exercises.js';
 import { muscleInvolvement, renderMuscleMap } from './muscle-map.js';
+import { blankSet, createRoutineStore, draftExercise, makeDraft, newGroup, newest, reorder, sessionPlan } from './routines.js';
+import { exerciseOptions, renderCompletedSessions, renderPersonalRoutines, renderRoutineBuilder, renderSession, renderVersions } from './routine-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -42,6 +44,7 @@ const storage = {
 };
 const store = createBrowserStore(storage);
 const exerciseStore = createExerciseStore(storage);
+const routineStore = createRoutineStore(storage);
 const tabs = [
   ['today', 'Today', 'Today / Log'], ['routines', 'Routines', 'Routines'],
   ['history', 'History', 'History / Progress'], ['settings', 'Settings', 'Settings'],
@@ -66,6 +69,8 @@ const state = {
   libraryOpen: false, exerciseDetail: null, substituteFor: null, availableEquipment: new Set(),
   exerciseQuery: newExerciseQuery(), exercises: readStorage(exerciseStore.load, { custom: [], preferences: {} }),
   muscleRegion: '',
+  planRecords: readStorage(routineStore.load, { categories: [], routines: [], sessions: [] }),
+  builder: null, routineCategory: '',
 };
 
 async function bundled(name) {
@@ -81,6 +86,9 @@ const [sample, catalogResource, anatomy] = await Promise.all([
 const catalog = Array.isArray(catalogResource) ? catalogResource : [];
 const libraryItems = () => [...catalog, ...state.exercises.custom];
 const libraryExercise = id => libraryItems().find(exercise => exercise.id === id);
+const personalRoutine = id => state.planRecords.routines.find(routine => routine.id === id);
+const personalSession = id => state.planRecords.sessions.find(session => session.id === id);
+const activePersonal = () => state.sampleMode ? null : state.planRecords.sessions.find(session => !session.completedAt);
 
 function savePreferences() {
   const { appearance, opaque, unit } = state;
@@ -255,9 +263,10 @@ function emptyCard(title, copy, symbol) {
 
 function routinesPage() {
   if (state.libraryOpen) return exerciseLibraryPage();
+  if (state.builder) return renderRoutineBuilder(state.builder, state.planRecords, catalog, state.exercises, state.unit);
   const entry = `<button type="button" class="surface routine-card library-entry" data-action="exercise-library">
     <span class="tile-icon">${icon('dumbbell', 22)}</span><strong>Exercise Library</strong><span class="round-arrow">${icon('chevron', 17)}</span></button>`;
-  if (!state.sampleMode) return `${sectionTitle('Routines', 'Your training library')}${entry}${emptyCard('No saved routines', 'Your routines will appear here.', 'routines')}`;
+  if (!state.sampleMode) return renderPersonalRoutines(state.planRecords, state.routineCategory, state.unit, activePersonal(), entry);
   const routine = routineFor(state.routine);
   if (routine) return `<button type="button" class="back-button" data-action="routine" data-value="">${icon('arrow', 17)} All routines</button>${sectionTitle('Routines')}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine, 'Sample routine')}</div><div class="dashboard-side">${muscleMap(routine)}</div><div class="dashboard-exercises">${exercises(routine)}</div></div>`;
   return `${sectionTitle('Routines', 'Training library')}${entry}<p class="screen-description">Sample routines show how your own workouts will appear.</p><div class="routine-grid">${sample.routines.map((item, index) => `<button class="surface routine-card" type="button" data-action="routine" data-value="${item.id}"><span class="tile-icon ${index ? 'coral' : ''}">${icon('dumbbell', 24)}</span><span class="routine-description"><strong>${item.name}</strong><span>${item.exercises.length} exercises · ${item.minutes} min</span><span>${item.primaryMuscles}</span></span><span class="round-arrow">${icon('chevron', 17)}</span></button>`).join('')}</div>`;
@@ -286,7 +295,8 @@ function historyPage() {
   const picker = `<div class="history-switch">${segment('history', [['progress', 'Progress'], ['sessions', 'Sessions']], state.history)}</div>`;
   const progress = state.history === 'progress';
   if (!state.sampleMode) {
-    if (!progress) return heading + picker + emptyCard('No completed workouts', 'Finished workouts will appear here.', 'clock');
+    if (!progress) return heading + picker + renderCompletedSessions(state.planRecords.sessions, state.unit, activePersonal(),
+      session => shortDate(session.localDate ?? localDayKey(new Date(session.startedAt))));
     const bodyweight = Object.values(state.user.entries).sort((a, b) => b.day.localeCompare(a.day));
     const entries = bodyweight.length ? `
       <section class="surface settings-card" aria-labelledby="bodyweight-history">
@@ -322,14 +332,17 @@ function settingsPage() {
       </section>
       <section class="surface settings-card settings-note">
         <div class="section-label"><span class="tile-icon small">${icon('info', 19)}</span><h2>Local data</h2></div>
-        <p>Bodyweight entries and preferences are saved in this browser. Sample data has its own preview and storage.</p>
+        <p>Routines, workouts, bodyweight entries, and preferences are saved in this browser. Sample data has its own preview and storage.</p>
       </section>
     </div>`;
 }
 
 function renderDock() {
   const routine = activePreview();
-  dock.innerHTML = `<div class="dock-inner"><button type="button" class="active-bar" data-action="active"><span class="active-icon">${icon('dumbbell', 20)}</span><span class="active-text"><strong>${routine?.name ?? 'Workout log'}</strong><span>${routine ? '<span class="live-dot"></span>Active preview' : 'No active workout'}</span></span><span class="active-arrow">${icon('chevron', 18)}</span></button><nav class="tab-bar" aria-label="Main navigation">${tabs.map(([id, title, label]) => `<a href="#${id}" ${state.tab === id ? 'aria-current="page"' : ''} aria-label="${label}">${icon(id, 21)}<span>${title}</span></a>`).join('')}</nav></div>`;
+  const personal = activePersonal();
+  const activeName = routine?.name ?? (personal ? sessionPlan(personal).name : 'Workout log');
+  const status = routine ? 'Active preview' : personal ? 'Active workout' : 'No active workout';
+  dock.innerHTML = `<div class="dock-inner"><button type="button" class="active-bar" data-action="active"><span class="active-icon">${icon('dumbbell', 20)}</span><span class="active-text"><strong>${escapeHTML(activeName)}</strong><span>${routine || personal ? '<span class="live-dot"></span>' : ''}${status}</span></span><span class="active-arrow">${icon('chevron', 18)}</span></button><nav class="tab-bar" aria-label="Main navigation">${tabs.map(([id, title, label]) => `<a href="#${id}" ${state.tab === id ? 'aria-current="page"' : ''} aria-label="${label}">${icon(id, 21)}<span>${title}</span></a>`).join('')}</nav></div>`;
 }
 
 function render({ scroll = false, focus = null } = {}) {
@@ -368,8 +381,13 @@ function showExerciseEditor(source, editing, trigger) {
 
 function showSession(trigger) {
   const routine = activePreview();
+  const session = activePersonal();
+  if (session) {
+    showDialog('personal-workout', escapeHTML(sessionPlan(session).name), renderSession(session, personalSession(session.referenceID), state.unit), trigger);
+    return;
+  }
   if (!routine) {
-    const hint = state.sampleMode ? 'Choose a sample routine to start a workout preview.' : 'Open a saved routine in the iPhone app to start a workout.';
+    const hint = state.sampleMode ? 'Choose a sample routine to start a workout preview.' : 'Open or create a saved routine to start a workout.';
     showDialog('idle', 'Workout log', `<p class="dialog-description">${hint}</p><button class="primary" type="button" data-action="choose-routine">Browse routines</button>`, trigger);
     return;
   }
@@ -380,6 +398,7 @@ function selectTab(tab, focus = false) {
   if (!tabs.some(([id]) => id === tab)) return;
   state.tab = tab;
   state.routine = null;
+  state.builder = null;
   state.libraryOpen = false;
   state.exerciseDetail = null;
   state.substituteFor = null;
@@ -387,11 +406,132 @@ function selectTab(tab, focus = false) {
   render({ scroll: true, focus: focus ? '#main' : null });
 }
 
+function openBuilder(version, sessionID = null) {
+  state.builder = { draft: makeDraft(version, state.unit), expanded: new Set(), search: '', sessionID };
+  render({ scroll: true, focus: '#main' });
+}
+
+function closeBuilder() {
+  const workout = state.builder.sessionID;
+  state.builder = null;
+  render({ scroll: true, focus: '#main' });
+  if (workout) showSession('.active-bar');
+}
+
+function planError(error, trigger) {
+  const inline = document.querySelector('#plan-error, #plan-session-error');
+  if (inline) inline.textContent = error.message;
+  else showDialog('error', 'Routine', `<p class="dialog-description">${escapeHTML(error.message)}</p>`, trigger);
+}
+
+function handlePlanAction(action, value, focus) {
+  const builder = state.builder;
+  const draft = builder?.draft;
+  let redraw = true;
+  try {
+    switch (action) {
+      case 'plan-new': return openBuilder();
+      case 'plan-edit': return openBuilder(newest(personalRoutine(value)));
+      case 'plan-cancel': return closeBuilder();
+      case 'plan-duplicate':
+        state.planRecords = routineStore.duplicate(value);
+        announce('Routine duplicated.');
+        break;
+      case 'plan-versions': {
+        const routine = personalRoutine(value);
+        return showDialog('routine-versions', 'Version history', renderVersions(routine, state.unit), focus);
+      }
+      case 'plan-start':
+        if (!activePersonal()) {
+          state.planRecords = routineStore.start(value);
+          render();
+        }
+        return showSession(focus);
+      case 'plan-repeat':
+        state.planRecords = routineStore.repeat(value);
+        render();
+        return showSession('.active-bar');
+      case 'plan-finish':
+        state.planRecords = routineStore.finish(value);
+        dialogTrigger = null;
+        dialog.close();
+        render({ focus: '.active-bar' });
+        return announce('Workout finished.');
+      case 'plan-session-edit': {
+        const session = personalSession(value);
+        dialogTrigger = null;
+        dialog.close();
+        selectTab('routines');
+        return openBuilder(sessionPlan(session), session.id);
+      }
+      case 'plan-save':
+        state.planRecords = builder.sessionID ? routineStore.editSession(builder.sessionID, draft, state.unit) : routineStore.saveRoutine(draft, state.unit);
+        if (!builder.sessionID && state.routineCategory) state.routineCategory = draft.categoryID;
+        closeBuilder();
+        return announce(builder.sessionID ? 'Workout updated.' : 'Routine saved.');
+      case 'plan-category': {
+        const category = { id: crypto.randomUUID(), name: document.querySelector('#new-routine-category').value.trim() };
+        state.planRecords = routineStore.addCategory(category);
+        draft.categoryID = category.id;
+        break;
+      }
+      case 'plan-add-exercise': {
+        const exercise = libraryExercise(document.querySelector('#routine-exercise-choice').value);
+        if (!exercise) throw new Error('Choose an exercise to add.');
+        const row = draftExercise(exercise);
+        draft.exercises.push(row);
+        builder.expanded.add(row.id);
+        builder.search = '';
+        break;
+      }
+      case 'plan-remove-row':
+        draft.exercises = draft.exercises.filter(row => row.id !== value);
+        draft.groups = draft.groups.map(group => ({ ...group, members: group.members.filter(id => id !== value) }))
+          .filter(group => group.members.length >= 2);
+        break;
+      case 'plan-up':
+      case 'plan-down': {
+        const index = draft.exercises.findIndex(row => row.id === value);
+        const adjacent = draft.exercises[index + (action === 'plan-up' ? -1 : 1)];
+        if (adjacent) reorder(draft.exercises, value, adjacent.id);
+        break;
+      }
+      case 'plan-add-work':
+      case 'plan-add-warm': {
+        const row = draft.exercises.find(item => item.id === value);
+        (action === 'plan-add-work' ? row.work : row.warm).push(blankSet());
+        break;
+      }
+      case 'plan-remove-set':
+        for (const row of draft.exercises) {
+          if (row.work.length > 1) row.work = row.work.filter(block => block.id !== value);
+          row.warm = row.warm.filter(block => block.id !== value);
+        }
+        break;
+      case 'plan-group': {
+        const group = newGroup(value);
+        draft.groups.push(group);
+        builder.expanded.add(group.id);
+        break;
+      }
+      case 'plan-remove-group': draft.groups = draft.groups.filter(group => group.id !== value); break;
+      default: redraw = false;
+    }
+    if (redraw) render({ focus });
+  } catch (error) { planError(error, focus); }
+}
+
 render();
 
 systemDark.addEventListener('change', () => { applyAppearance(); renderHeader(); });
 window.addEventListener('hashchange', () => selectTab(location.hash.slice(1) || 'today'));
 main.addEventListener('toggle', event => {
+  const expanded = event.target.dataset.builderExpand;
+  if (expanded && state.builder && event.target.isConnected) {
+    if (event.target.open) state.builder.expanded.add(expanded);
+    else state.builder.expanded.delete(expanded);
+    return;
+  }
   if (!event.target.matches('details[data-exercise]')) return;
   const { open, dataset: { exercise } } = event.target;
   if (open) state.expanded.add(exercise);
@@ -399,6 +539,16 @@ main.addEventListener('toggle', event => {
 }, true);
 
 main.addEventListener('input', event => {
+  const target = event.target;
+  if (state.builder && target.id === 'routine-exercise-search') {
+    state.builder.search = target.value;
+    document.querySelector('#routine-exercise-choice').innerHTML = exerciseOptions(catalog, state.exercises, target.value);
+    return;
+  }
+  if (state.builder && target.dataset.planField && target.tagName === 'INPUT' && target.type !== 'checkbox') {
+    planField(target)[target.dataset.planField] = target.value;
+    return;
+  }
   if (event.target.id !== 'exercise-search') return;
   state.exerciseQuery.name = event.target.value;
   document.querySelector('#exercise-results').innerHTML = renderSearchResults(catalog, state.exercises, state.exerciseQuery);
@@ -406,7 +556,30 @@ main.addEventListener('input', event => {
 
 main.addEventListener('change', event => {
   const target = event.target;
-  if (target.id === 'muscle-region-picker') {
+  if (target.id === 'routine-category-filter') {
+    state.routineCategory = target.value;
+    render({ focus: '#routine-category-filter' });
+  } else if (state.builder && target.dataset.planMember) {
+    const group = planField(target);
+    if (target.checked) group.members.push(target.dataset.planMember);
+    else group.members = group.members.filter(id => id !== target.dataset.planMember);
+    render({ focus: `[data-plan-group="${group.id}"] [data-plan-member="${target.dataset.planMember}"]` });
+  } else if (state.builder && target.dataset.planField) {
+    const field = target.dataset.planField;
+    const record = planField(target);
+    record[field] = target.type === 'checkbox' ? target.checked : target.value;
+    if (field === 'measurement' || field === 'basis') {
+      for (const block of [...record.work, ...record.warm]) {
+        block.target = '';
+        block.originalTarget = null;
+        block.originalText = '';
+      }
+      render({ focus: `[data-plan-row="${record.id}"] [data-plan-field="${field}"]` });
+    } else if (field === 'effort') {
+      record.effortValue = '';
+      render({ focus: `[data-plan-set="${record.id}"] [data-plan-field="effort"]` });
+    }
+  } else if (target.id === 'muscle-region-picker') {
     state.muscleRegion = target.value;
     render({ focus: '#muscle-region-picker' });
   } else if (target.hasAttribute('data-exercise-filter')) {
@@ -418,6 +591,48 @@ main.addEventListener('change', event => {
     document.querySelector('#substitution-results').innerHTML = renderSubstitutionResults(libraryExercise(state.substituteFor), libraryItems(),
       state.availableEquipment, state.exercises.preferences);
   }
+});
+
+function planField(target) {
+  const draft = state.builder.draft;
+  const groupID = target.closest('[data-plan-group]')?.dataset.planGroup;
+  if (groupID) return draft.groups.find(group => group.id === groupID);
+  const rowID = target.closest('[data-plan-row]')?.dataset.planRow;
+  if (!rowID) return draft;
+  const row = draft.exercises.find(entry => entry.id === rowID);
+  const blockID = target.closest('[data-plan-set]')?.dataset.planSet;
+  return blockID ? [...row.warm, ...row.work].find(block => block.id === blockID) : row;
+}
+
+let drag = null;
+main.addEventListener('pointerdown', event => {
+  const handle = event.target.closest('[data-drag-row]');
+  if (!handle || event.button !== 0 || !state.builder) return;
+  handle.setPointerCapture(event.pointerId);
+  drag = { id: handle.dataset.dragRow, pointer: event.pointerId };
+});
+
+main.addEventListener('pointermove', event => {
+  if (!drag || event.pointerId !== drag.pointer) return;
+  main.querySelector('.drop-target')?.classList.remove('drop-target');
+  document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-plan-row]')?.classList.add('drop-target');
+});
+
+main.addEventListener('pointerup', event => {
+  if (!drag || event.pointerId !== drag.pointer) return;
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-plan-row]');
+  const from = drag.id;
+  drag = null;
+  main.querySelector('.drop-target')?.classList.remove('drop-target');
+  if (!target || !state.builder || from === target.dataset.planRow) return;
+  reorder(state.builder.draft.exercises, from, target.dataset.planRow);
+  render({ focus: `[data-drag-row="${from}"]` });
+  announce('Exercise moved.');
+});
+
+main.addEventListener('pointercancel', () => {
+  drag = null;
+  main.querySelector('.drop-target')?.classList.remove('drop-target');
 });
 
 function selectMuscle(target) {
@@ -460,6 +675,10 @@ document.addEventListener('click', event => {
   if (!target) return;
   const { action, value } = target.dataset;
   const focus = `[data-action="${action}"]${value === undefined ? '' : `[data-value="${value}"]`}`;
+  if (action.startsWith('plan-')) {
+    handlePlanAction(action, value, focus);
+    return;
+  }
   switch (action) {
     case 'theme': state.appearance = theme() === 'dark' ? 'light' : 'dark'; savePreferences(); render({ focus }); break;
     case 'appearance': state.appearance = value; savePreferences(); render({ focus }); break;
@@ -497,6 +716,7 @@ document.addEventListener('click', event => {
       state.sampleMode = !state.sampleMode;
       state.date = today();
       state.routine = null;
+      state.builder = null;
       state.history = 'progress';
       render({ scroll: true, focus });
       break;

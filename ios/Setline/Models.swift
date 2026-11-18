@@ -180,6 +180,34 @@ final class TrainingModel {
         updateUserData { try $0.finishSession(id) }
     }
 
+    func saveRoutine(id: UUID, name: String, exercises: [PlannedExercise], categoryID: UUID?, groups: [RoutineGroup],
+                     expectedVersionID: UUID?) -> Bool {
+        updateUserData { repository in
+            _ = try repository.saveRoutine(id: id, name: name, exercises: exercises, categoryID: categoryID,
+                                           groups: groups, expectedVersionID: expectedVersionID)
+        }
+    }
+
+    func addRoutineCategory(_ category: RoutineCategory) -> Bool {
+        updateUserData { try $0.addRoutineCategory(category) }
+    }
+
+    func addEquipment(_ equipment: Equipment) -> Bool {
+        updateUserData { try $0.addEquipment(equipment) }
+    }
+
+    func duplicateRoutine(_ versionID: UUID) -> Bool {
+        updateUserData { _ = try $0.duplicateRoutine(versionID: versionID) }
+    }
+
+    func repeatWorkout(_ id: UUID) -> Bool {
+        updateUserData { _ = try $0.repeatSession(id) }
+    }
+
+    func editSessionPlan(_ id: UUID, name: String, exercises: [PlannedExercise], groups: [RoutineGroup]) -> Bool {
+        updateUserData { try $0.editSessionPlan(id, name: name, exercises: exercises, groups: groups) }
+    }
+
     private func updateUserData(_ update: (TrainingRepository) throws -> Void) -> Bool {
         guard let repository else {
             storageError = userLoadError

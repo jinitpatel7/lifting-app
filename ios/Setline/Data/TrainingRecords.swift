@@ -214,10 +214,14 @@ struct SetPrescription: Codable, Equatable {
     var target: SetAmount? = nil
     var repsInReserve: Int? = nil
     var restSeconds: Int? = nil
+    var structure: SetStructure? = nil
+    var amrap: Bool? = nil
+    var effort: EffortTarget? = nil
 
     func isValid(for measurement: Measurement) -> Bool {
         sets > 0 && (repsInReserve ?? 0) >= 0 && (restSeconds ?? 0) >= 0
-            && (measurement.repCounting == nil ? reps == nil && repsInReserve == nil : reps?.isValid == true)
+            && (effort?.isValid ?? true) && (effort == nil || repsInReserve == nil)
+            && (measurement.repCounting == nil ? reps == nil && amrap != true : (reps?.isValid ?? (amrap == true)))
             && (target == nil || measurement.accepts(target))
     }
 }
@@ -226,6 +230,11 @@ struct PlannedExercise: Codable, Equatable, Identifiable {
     var id = UUID()
     let variant: ExerciseVariant
     let prescription: SetPrescription
+    var warmUps: [SetPrescription]? = nil
+    var additionalWorkingSets: [SetPrescription]? = nil
+
+    var workingSets: [SetPrescription] { [prescription] + (additionalWorkingSets ?? []) }
+    var allPrescriptions: [SetPrescription] { (warmUps ?? []) + workingSets }
 }
 
 struct RoutineRecord: Codable, Equatable, Identifiable {
@@ -241,6 +250,8 @@ struct RoutineVersion: Codable, Equatable, Identifiable {
     let createdAt: Date
     let name: String
     let exercises: [PlannedExercise]
+    var categoryID: UUID? = nil
+    var groups: [RoutineGroup]? = nil
 }
 
 struct PerformedSet: Codable, Equatable, Identifiable {
@@ -250,6 +261,10 @@ struct PerformedSet: Codable, Equatable, Identifiable {
     var repetitions: Repetitions? = nil
     var amount: SetAmount? = nil
     var recordedAt = Date()
+    var effortOutcome: EffortOutcome? = nil
+    var purpose: SetPurpose? = nil
+    var structure: SetStructure? = nil
+    var amrap: Bool? = nil
 }
 
 struct WorkoutSession: Codable, Equatable, Identifiable {
@@ -261,6 +276,10 @@ struct WorkoutSession: Codable, Equatable, Identifiable {
     let routineSnapshot: RoutineVersion
     var completedAt: Date? = nil
     var performedSets: [PerformedSet] = []
+    var sessionPlan: RoutineVersion? = nil
+    var referenceSessionID: UUID? = nil
+
+    var plan: RoutineVersion { sessionPlan ?? routineSnapshot }
 }
 
 struct ScheduledWorkout: Codable, Equatable, Identifiable {

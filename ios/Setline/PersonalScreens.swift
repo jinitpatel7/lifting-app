@@ -55,18 +55,43 @@ struct PersonalRoutinesScreen: View {
     let unit: WeightUnit
     let start: (UUID, UUID?) -> Void
     let browseLibrary: () -> Void
+    let edit: (RoutineVersion?) -> Void
+    let duplicate: (UUID) -> Void
+    let versionHistory: (UUID) -> Void
+    @State private var category: UUID?
 
     var body: some View {
         PageHeading(title: "Routines", subtitle: "Your training library")
         LibraryEntryButton(open: browseLibrary)
+        Button { edit(nil) } label: { Label("New routine", systemImage: "plus") }.buttonStyle(PrimaryButton())
+            .frame(maxWidth: .infinity, alignment: .leading)
+        if let categories = records.routineCategories, !categories.isEmpty {
+            Picker("Filter by category", selection: $category) {
+                Text("All categories").tag(nil as UUID?)
+                ForEach(categories) { Text($0.name).tag(Optional($0.id)) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
         if records.currentRoutines.isEmpty {
             PersonalStatus(title: "No saved routines", symbol: "square.stack") {
                 Text("Your routines will appear here.").font(.subheadline).foregroundStyle(Palette.muted)
             }
         }
-        ForEach(records.currentRoutines) { version in
-            PersonalRoutineCard(version: version, unit: unit, subtitle: "Version \(version.revision)", active: records.activeSession != nil) {
-                start(version.id, nil)
+        ForEach(records.currentRoutines.filter { category == nil || $0.categoryID == category }) { version in
+            let category = records.routineCategories?.first { $0.id == version.categoryID }
+            let subtitle = ["Version \(version.revision)", category?.name].compactMap { $0 }.joined(separator: " · ")
+            VStack(alignment: .leading, spacing: 5) {
+                PersonalRoutineCard(version: version, unit: unit, subtitle: subtitle, active: records.activeSession != nil) {
+                    start(version.id, nil)
+                }
+                Menu {
+                    Button("Edit routine") { edit(version) }
+                    Button("Duplicate routine") { duplicate(version.id) }
+                    Button("Version history") { versionHistory(version.routineID) }
+                } label: {
+                    Label("Routine options", systemImage: "ellipsis.circle").frame(minHeight: 44)
+                }
+                .accessibilityLabel("Options for \(version.name)")
             }
         }
     }
@@ -82,10 +107,7 @@ struct PersonalRoutineCard: View {
     var body: some View {
         PersonalStatus(title: version.name, symbol: "dumbbell") {
             Text(subtitle).font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
-            ForEach(version.exercises) { entry in
-                LabeledContent(entry.variant.exercise.name, value: entry.summary(unit: unit))
-                    .font(.subheadline)
-            }
+            RoutinePlanRows(version: version, unit: unit)
             Button(action: start) {
                 Label(active ? "Resume Workout" : "Log Workout", systemImage: active ? "chevron.right" : "play.fill")
             }
@@ -98,6 +120,8 @@ struct PersonalHistoryScreen: View {
     let sessions: [WorkoutSession]
     let bodyweight: [BodyweightEntry]
     let unit: WeightUnit
+    let repeatWorkout: (UUID) -> Void
+    let hasActiveWorkout: Bool
     @Binding var selection: HistoryScreen.Section
 
     private var completed: [WorkoutSession] {
@@ -114,7 +138,7 @@ struct PersonalHistoryScreen: View {
                     Text("Results from completed workouts will appear here.").font(.subheadline).foregroundStyle(Palette.muted)
                 }
                 ForEach(results) { session in
-                    ForEach(session.routineSnapshot.exercises) { entry in
+                    ForEach(session.plan.exercises) { entry in
                         let sets = session.performedSets.filter { $0.plannedExerciseID == entry.id }.sorted { $0.order < $1.order }
                         if !sets.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
@@ -146,15 +170,64 @@ struct PersonalHistoryScreen: View {
                 }
             }
             ForEach(completed) { session in
-                PersonalStatus(title: session.routineSnapshot.name, symbol: "dumbbell") {
+                PersonalStatus(title: session.plan.name, symbol: "dumbbell") {
                     Text("\(session.localDate.formatted(.dateTime.month(.abbreviated).day())) · \(session.performedSets.count) recorded sets")
                         .font(.caption).foregroundStyle(Palette.muted)
-                    ForEach(session.routineSnapshot.exercises) { entry in
-                        LabeledContent(entry.variant.exercise.name, value: entry.summary(unit: unit))
-                            .font(.subheadline)
-                    }
+                    RoutinePlanRows(version: session.plan, unit: unit)
+                    Button("Repeat workout") { repeatWorkout(session.id) }.buttonStyle(SecondaryButton())
+                        .disabled(hasActiveWorkout)
                 }
             }
+        }
+    }
+}
+
+struct RoutinePlanRows: View {
+    let version: RoutineVersion
+    let unit: WeightUnit
+
+    var body: some View {
+        ForEach(version.exercises) { entry in
+            if let group = version.groups?.first(where: { $0.exerciseIDs.first == entry.id }) {
+                Text(group.summary).font(.caption.weight(.semibold)).foregroundStyle(Palette.purple)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.variant.exercise.name).font(.subheadline.weight(.semibold))
+                if let variation = entry.variant.exercise.profile?.variation, !variation.isEmpty {
+                    Text(variation).font(.caption).foregroundStyle(Palette.muted)
+                }
+                if let equipment = entry.variant.equipment { Text(equipment.name).font(.caption).foregroundStyle(Palette.muted) }
+                if let warm = entry.warmUps {
+                    ForEach(warm.indices, id: \.self) { index in
+                        Text("Warm-up · \(entry.summary(warm[index], unit: unit))").font(.caption)
+                    }
+                }
+                ForEach(entry.workingSets.indices, id: \.self) { index in
+                    Text("Working · \(entry.summary(entry.workingSets[index], unit: unit))").font(.caption)
+                }
+            }
+        }
+    }
+}
+
+struct RoutineHistorySheet: View {
+    let versions: [RoutineVersion]
+    let categories: [RoutineCategory]
+    let unit: WeightUnit
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(versions) { version in
+                DisclosureGroup("Version \(version.revision) · \(version.name)") {
+                    Text(version.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(Palette.muted)
+                    if let category = categories.first(where: { $0.id == version.categoryID }) { Text(category.name).font(.caption) }
+                    RoutinePlanRows(version: version, unit: unit)
+                }
+            }
+            .navigationTitle("Version history")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .tint(Palette.purple)
         }
     }
 }
@@ -178,7 +251,7 @@ struct PersonalStatus<Content: View>: View {
 }
 
 extension PlannedExercise {
-    func summary(unit: WeightUnit) -> String {
+    func summary(_ prescription: SetPrescription, unit: WeightUnit) -> String {
         let measurement = variant.measurement
         let sets = if let reps = prescription.reps, let counting = measurement.repCounting {
             "\(prescription.sets) × \(reps.label) \(counting.label)"
@@ -186,11 +259,17 @@ extension PlannedExercise {
             "\(prescription.sets) sets"
         }
         let amount = prescription.target?.summary(unit: unit, measurement: measurement)
-        return [sets, amount].compactMap { $0 }.joined(separator: " · ")
+        let effort: String? = switch prescription.effort {
+        case .rpe(let value): "RPE \(value.formatted())"
+        case .failure: "To failure"
+        case nil: prescription.repsInReserve.map { "RIR \($0)" }
+        }
+        return [sets, amount, prescription.restSeconds.map { "\($0)s rest" }, effort,
+                prescription.structure?.rawValue, prescription.amrap == true ? "AMRAP" : nil].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
-private extension PerformedSet {
+extension PerformedSet {
     func summary(unit: WeightUnit, measurement: Measurement) -> String {
         let load = amount?.summary(unit: unit, measurement: measurement)
         let reps: String? = switch repetitions {
@@ -199,7 +278,7 @@ private extension PerformedSet {
         case .separateSides(let left, let right): "\(left) left / \(right) right"
         case nil: nil
         }
-        return [load, reps].compactMap { $0 }.joined(separator: " · ")
+        return [load, reps, effortOutcome == .failure ? "To failure" : nil].compactMap { $0 }.joined(separator: " · ")
     }
 }
 

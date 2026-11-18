@@ -33,12 +33,15 @@ private enum MainTab: String, CaseIterable, Identifiable {
 
 private enum ActiveSheet: Identifiable {
     case bodyweight(String), workout, exerciseLibrary(MuscleGroup?)
+    case routineEditor(RoutineVersion?), routineHistory(UUID)
 
     var id: String {
         switch self {
         case .bodyweight(let date): "weight-\(date)"
         case .workout: "workout"
         case .exerciseLibrary(let group): "exercises-\(group?.rawValue ?? "all")"
+        case .routineEditor(let version): "routine-\(version?.id.uuidString ?? "new")"
+        case .routineHistory(let id): "versions-\(id.uuidString)"
         }
     }
 }
@@ -87,6 +90,10 @@ struct SetlineRoot: View {
                 }
             case .exerciseLibrary(let muscle):
                 ExerciseLibraryScreen(model: model, initialMuscle: muscle)
+            case .routineEditor(let version):
+                RoutineEditor(model: model, unit: unit, original: version)
+            case .routineHistory(let id):
+                RoutineHistorySheet(versions: model.records.versions(for: id), categories: model.records.routineCategories ?? [], unit: unit)
             }
         }
         .alert("Local storage", isPresented: Binding(
@@ -114,14 +121,17 @@ struct SetlineRoot: View {
                 RoutinesScreen(sample: sample, model: model, unit: unit, active: model.activeRoutine != nil, start: start,
                                browseLibrary: { sheet = .exerciseLibrary(nil) }, browseMuscle: browseMuscle, selection: $routine)
             } else {
-                PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession, browseLibrary: { sheet = .exerciseLibrary(nil) })
+                PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession,
+                    browseLibrary: { sheet = .exerciseLibrary(nil) }, edit: { sheet = .routineEditor($0) },
+                    duplicate: { _ = model.duplicateRoutine($0) }, versionHistory: { sheet = .routineHistory($0) })
             }
         case .history:
             if showsSample, let sample = model.sample {
                 HistoryScreen(sample: sample, unit: unit, selection: $history)
             } else {
                 PersonalHistoryScreen(sessions: model.records.sessions, bodyweight: model.records.bodyweightEntries,
-                                      unit: unit, selection: $history)
+                                      unit: unit, repeatWorkout: repeatWorkout, hasActiveWorkout: model.records.activeSession != nil,
+                                      selection: $history)
             }
         case .settings:
             SettingsScreen(appearance: $appearance, opaque: $opaque, unit: $unit)
@@ -179,7 +189,7 @@ struct SetlineRoot: View {
 
     private var dock: some View {
         VStack(spacing: 5) {
-            let activeName = showsSample ? model.activeRoutine?.name : model.records.activeSession?.routineSnapshot.name
+        let activeName = showsSample ? model.activeRoutine?.name : model.records.activeSession?.plan.name
             Button {
                 sheet = .workout
             } label: {
@@ -248,6 +258,10 @@ struct SetlineRoot: View {
     private func startSession(_ versionID: UUID, _ scheduleID: UUID?) {
         if model.startSession(versionID: versionID, scheduleID: scheduleID) { sheet = .workout }
     }
+
+    private func repeatWorkout(_ id: UUID) {
+        if model.repeatWorkout(id) { sheet = .workout }
+    }
 }
 
 private struct WeightSheet: View {
@@ -306,14 +320,29 @@ private struct WorkoutSheet: View {
     let sampleMode: Bool
     let browse: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var editing = false
 
     var body: some View {
         NavigationStack {
             List {
                 if !sampleMode, let session = model.records.activeSession {
                     Section("Saved session plan") {
-                        ForEach(session.routineSnapshot.exercises) { exercise in
-                            LabeledContent(exercise.variant.exercise.name, value: exercise.summary(unit: unit))
+                        RoutinePlanRows(version: session.plan, unit: unit)
+                        Button("Edit this workout") { editing = true }.frame(minHeight: 44)
+                    }
+                    if let source = model.records.sessions.first(where: { $0.id == session.referenceSessionID }) {
+                        Section("Previous results") {
+                            Text(source.localDate.formatted(.dateTime.month(.wide).day().year())).font(.caption)
+                            if source.performedSets.isEmpty { Text("No sets were recorded for this workout.") }
+                            ForEach(source.plan.exercises) { exercise in
+                                let results = source.performedSets.filter { $0.plannedExerciseID == exercise.id }.sorted { $0.order < $1.order }
+                                if !results.isEmpty {
+                                    Text(exercise.variant.exercise.name).font(.subheadline.weight(.semibold))
+                                    ForEach(results) { result in
+                                        Text(result.summary(unit: unit, measurement: exercise.variant.measurement)).font(.caption)
+                                    }
+                                }
+                            }
                         }
                     }
                     Section {
@@ -348,10 +377,15 @@ private struct WorkoutSheet: View {
                     Button("Browse routines", action: browse).frame(minHeight: 44)
                 }
             }
-            .navigationTitle((sampleMode ? model.activeRoutine?.name : model.records.activeSession?.routineSnapshot.name) ?? "Workout log")
+            .navigationTitle((sampleMode ? model.activeRoutine?.name : model.records.activeSession?.plan.name) ?? "Workout log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .tint(Palette.purple)
+            .sheet(isPresented: $editing) {
+                if let session = model.records.activeSession {
+                    RoutineEditor(model: model, unit: unit, original: session.plan, sessionID: session.id)
+                }
+            }
         }
     }
 }
