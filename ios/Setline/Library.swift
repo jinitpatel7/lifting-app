@@ -3,9 +3,12 @@ import SwiftUI
 
 struct RoutinesScreen: View {
     let sample: SampleData
+    let model: TrainingModel
     let unit: WeightUnit
     let active: Bool
     let start: (Routine) -> Void
+    let browseLibrary: () -> Void
+    let browseMuscle: (MuscleGroup) -> Void
     @Binding var selection: Routine?
 
     var body: some View {
@@ -18,10 +21,11 @@ struct RoutinesScreen: View {
             .buttonStyle(SecondaryButton())
             .frame(maxWidth: .infinity, alignment: .leading)
             WorkoutCard(routine: routine, active: active, label: "Sample routine") { start(routine) }
-            MuscleCard(routine: routine)
+            InteractiveMuscleMap(involvement: model.sampleInvolvement(routine), browse: browseMuscle)
             ExerciseList(routine: routine, unit: unit).id(routine.id)
         } else {
             PageHeading(title: "Routines", subtitle: "Training library")
+            LibraryEntryButton(open: browseLibrary)
             Text("Sample routines show how your own workouts will appear.")
                 .font(.subheadline).foregroundStyle(Palette.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)

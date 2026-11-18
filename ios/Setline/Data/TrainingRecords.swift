@@ -93,7 +93,7 @@ struct WorkoutDate: Codable, Hashable, Comparable {
     }
 }
 
-enum EquipmentKind: String, Codable {
+enum EquipmentKind: String, Codable, CaseIterable, Hashable {
     case barbell, dumbbell, cable, machine, kettlebell, band, other
 }
 
@@ -106,8 +106,10 @@ struct Equipment: Codable, Equatable, Identifiable {
 
 struct Exercise: Codable, Equatable, Identifiable {
     var id = UUID()
-    let name: String
+    var name: String
     var createdAt = Date()
+    var profile: ExerciseProfile? = nil
+    var updatedAt: Date? = nil
 }
 
 enum LoadBasis: String, Codable, Hashable {

@@ -32,12 +32,13 @@ private enum MainTab: String, CaseIterable, Identifiable {
 }
 
 private enum ActiveSheet: Identifiable {
-    case bodyweight(String), workout
+    case bodyweight(String), workout, exerciseLibrary(MuscleGroup?)
 
     var id: String {
         switch self {
         case .bodyweight(let date): "weight-\(date)"
         case .workout: "workout"
+        case .exerciseLibrary(let group): "exercises-\(group?.rawValue ?? "all")"
         }
     }
 }
@@ -84,6 +85,8 @@ struct SetlineRoot: View {
                     sheet = nil
                     tab = .routines
                 }
+            case .exerciseLibrary(let muscle):
+                ExerciseLibraryScreen(model: model, initialMuscle: muscle)
             }
         }
         .alert("Local storage", isPresented: Binding(
@@ -101,16 +104,17 @@ struct SetlineRoot: View {
         case .today:
             if showsSample, let sample = model.sample {
                 TodayScreen(sample: sample, model: model, unit: unit, openRoutines: { tab = .routines },
-                            start: start, editWeight: { sheet = .bodyweight($0) }, selectedDay: $day)
+                            start: start, editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
             } else {
                 PersonalTodayScreen(records: model.records, unit: unit, browse: { tab = .routines },
-                                    start: startSession, editWeight: { sheet = .bodyweight($0) }, selectedDay: $day)
+                                    start: startSession, editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
             }
         case .routines:
             if showsSample, let sample = model.sample {
-                RoutinesScreen(sample: sample, unit: unit, active: model.activeRoutine != nil, start: start, selection: $routine)
+                RoutinesScreen(sample: sample, model: model, unit: unit, active: model.activeRoutine != nil, start: start,
+                               browseLibrary: { sheet = .exerciseLibrary(nil) }, browseMuscle: browseMuscle, selection: $routine)
             } else {
-                PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession)
+                PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession, browseLibrary: { sheet = .exerciseLibrary(nil) })
             }
         case .history:
             if showsSample, let sample = model.sample {
@@ -238,6 +242,8 @@ struct SetlineRoot: View {
     private func start(_ routine: Routine) {
         if model.startPreview(routine) { sheet = .workout }
     }
+
+    private func browseMuscle(_ group: MuscleGroup) { sheet = .exerciseLibrary(group) }
 
     private func startSession(_ versionID: UUID, _ scheduleID: UUID?) {
         if model.startSession(versionID: versionID, scheduleID: scheduleID) { sheet = .workout }

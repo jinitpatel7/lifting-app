@@ -11,6 +11,8 @@ const types = {
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
   '.webp': 'image/webp',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
   '.woff2': 'font/woff2',
 };
 const publicPath = new URL('./', import.meta.url);

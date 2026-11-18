@@ -7,6 +7,7 @@ struct TodayScreen: View {
     let openRoutines: () -> Void
     let start: (Routine) -> Void
     let editWeight: (String) -> Void
+    let browseMuscle: (MuscleGroup) -> Void
     @Binding var selectedDay: String?
 
     private var day: String { selectedDay ?? sample.today }
@@ -21,7 +22,7 @@ struct TodayScreen: View {
         }, selection: day) { selectedDay = $0 }
         if let routine = selectedRoutine {
             WorkoutCard(routine: routine, active: model.activeRoutine != nil) { start(routine) }
-            MuscleCard(routine: routine)
+            InteractiveMuscleMap(involvement: model.sampleInvolvement(routine), browse: browseMuscle)
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 IconTile(symbol: "calendar")
@@ -151,53 +152,6 @@ struct WorkoutCard: View {
     @ViewBuilder private var metadata: some View {
         Label("\(routine.minutes) min", systemImage: "clock")
         Label("\(routine.exercises.count) exercises", systemImage: "dumbbell")
-    }
-}
-
-struct MuscleCard: View {
-    let routine: Routine
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                CardHeading(title: "Muscle map")
-                Spacer()
-                IconTile(symbol: "figure.stand", size: 32)
-            }
-            VStack(spacing: 3) {
-                BundleImage(file: routine.id == "upper-a" ? "muscle-map.png" : "muscle-map-lower.png")
-                    .frame(height: 150)
-                HStack(spacing: 68) {
-                    Text("FRONT")
-                    Text("BACK")
-                }
-                .font(.caption2.weight(.bold)).tracking(1).foregroundStyle(Palette.muted)
-            }
-            .frame(maxWidth: .infinity)
-            .accessibilityHidden(true)
-            Divider()
-            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-                                                      : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
-            layout { legend }
-        }
-        .padding(14).surface()
-    }
-
-    @ViewBuilder private var legend: some View {
-        key("Primary", detail: routine.primaryMuscles, color: Color(hex: 0x7548ED))
-        key("Secondary", detail: routine.secondaryMuscles, color: Color(hex: 0xE4788D))
-    }
-
-    private func key(_ title: String, detail: String, color: Color) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Circle().fill(color).frame(width: 8, height: 8).padding(.top, 4).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption.weight(.bold))
-                Text(detail).font(.caption).foregroundStyle(Palette.muted)
-            }
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 

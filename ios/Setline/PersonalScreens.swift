@@ -6,6 +6,7 @@ struct PersonalTodayScreen: View {
     let browse: () -> Void
     let start: (UUID, UUID?) -> Void
     let editWeight: (String) -> Void
+    let browseMuscle: (MuscleGroup) -> Void
     @Binding var selectedDay: String?
 
     var body: some View {
@@ -37,6 +38,13 @@ struct PersonalTodayScreen: View {
                                date: today == day ? "Today" : day.formatted(.dateTime.month(.abbreviated).day())) {
                     editWeight(day.key)
                 }
+                let plannedProfiles = planned.flatMap { workout in
+                    records.version(workout.routineVersionID)?.exercises.compactMap { entry in
+                        let exercise = entry.variant.exercise
+                        return exercise.profile ?? records.exercises.first { $0.id == exercise.id }?.profile
+                    } ?? []
+                }
+                InteractiveMuscleMap(involvement: MuscleInvolvement(plannedProfiles), browse: browseMuscle)
             }
         }
     }
@@ -46,9 +54,11 @@ struct PersonalRoutinesScreen: View {
     let records: TrainingRecords
     let unit: WeightUnit
     let start: (UUID, UUID?) -> Void
+    let browseLibrary: () -> Void
 
     var body: some View {
         PageHeading(title: "Routines", subtitle: "Your training library")
+        LibraryEntryButton(open: browseLibrary)
         if records.currentRoutines.isEmpty {
             PersonalStatus(title: "No saved routines", symbol: "square.stack") {
                 Text("Your routines will appear here.").font(.subheadline).foregroundStyle(Palette.muted)

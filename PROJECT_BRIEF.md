@@ -2,10 +2,10 @@
 
 ## Product and stage
 
-Setline helps experienced lifters follow their own routines, record performance, and review exercise-specific progress. Workouts are always authored by the lifter. Stage 1 established the interface and navigation. Stage 2 adds the offline data foundation and opens into personal records by default. **View sample data** opens the original, separately stored sample week anchored on November 17, 2026.
+Setline helps experienced lifters follow their own routines, record performance, and review exercise-specific progress. Workouts are always authored by the lifter. Stage 1 established the interface and navigation, stage 2 added offline records, and stage 3 adds the exercise library and interactive muscle maps. **View sample data** opens the separately stored sample week anchored on November 17, 2026.
 
-- **Today / Log** reads the device calendar, saved schedule, and daily bodyweight. The sample version shows front and back muscle maps and sample prescriptions.
-- **Routines** reads the current version of each saved routine. Sample exercise cards show thumbnails, previous best sets, future prediction placeholders, and expandable RIR and rest details.
+- **Today / Log** reads the device calendar, saved schedule, and daily bodyweight. Interactive front and back maps combine muscles across the planned exercises for the selected day. Primary involvement takes precedence when a muscle has both roles.
+- **Routines** reads the current version of each saved routine and opens the Exercise Library. Sample exercise cards show thumbnails, previous best sets, future prediction placeholders, and expandable RIR and rest details.
 - **History / Progress** reads completed session snapshots, sets, and bodyweight history. The bench press trend remains in the sample preview.
 - **Settings** provides system, light, and dark appearance, solid navigation, and kilogram or pound display.
 - The workout bar is available across all four tabs. The native app can start a saved routine, resume its active session, and finish it. Starting or ending a sample workout changes only the sample preview.
@@ -27,16 +27,19 @@ Setline helps experienced lifters follow their own routines, record performance,
 - Rep counts are total, equal per side, or separate left and right counts. Per-side targets apply to each side. Added load is the external weight applied to a bodyweight movement. Assistance is a positive amount that offsets load. Each has its own measurement type.
 - Machine settings are device-specific labels such as `007`. They retain their exact text and stay outside mass conversion. Duration and rest use seconds, distance uses meters, and RIR counts reps in reserve.
 - Program blocks group pinned scheduled workouts within inclusive local dates. Readiness records capture 1–5 energy and soreness scores and optional sleep minutes. Photo references store a Photos library identifier or an app-relative file path.
+- The offline exercise catalog uses stable IDs and original instruction copy. Favorites and exclusions are stored by exercise ID. Exclusions hide exercises from normal browsing and substitutions, with a separate collection for review. Substitutions use shared muscles and user-selected equipment types.
+- Custom exercise names, muscles, cues, and setup notes are editable. A different equipment type or variation label requires a new exercise ID. Previously saved routine versions and workout snapshots retain their recorded exercise data. Physical equipment IDs still distinguish individual stations in performance records.
+- Demonstrations support bundled images and video. Entries without a supplied asset display an explicit placeholder. [Exercise catalog](ios/Setline/Resources/ExerciseCatalog.json)
 
 ## Verification and remaining work
 
-- Browser storage tests passed migration, stable IDs, unit conversion, local date handling, and failed-write recovery. Chromium at iPhone width verified bodyweight persistence and sample isolation across reloads, sample navigation, and personal entry with external requests blocked and the sample fixture unavailable in a separate check.
-- Swift syntax and Xcode source membership passed static checks on Windows. The `swift test` suite covers native migration, relaunch, incremental sets, machine setting validation, historical snapshots, failed saves, and device photo references. Running it requires a Swift toolchain. The app still needs an Xcode build, simulator and device testing, and a VoiceOver pass.
+- Browser tests cover search, exercise preferences, custom exercise identities, substitutions, and muscle involvement, alongside the previous local storage checks. Chromium at iPhone width checks direct and keyboard muscle selection, combined filters, custom creation and edits, saved preferences after reload, the sample plan after browsing substitutions, and the empty library with the catalog unavailable.
+- Swift syntax, Xcode source membership, and bundled resource membership passed static checks on Windows. Native tests cover renaming without changing historical snapshots, filtering, readiness, migration, and workout saves. Running them requires a Swift toolchain. The app still needs an Xcode build, simulator and device testing, and a VoiceOver pass.
 - Future stages include authoring routines and schedules, set entry screens, readiness and photo entry, and exercise-specific progression. Prediction panels are static placeholders. Photo selection will need PhotosPicker. Apple Watch needs a watchOS target and WatchConnectivity. Lock Screen needs an ActivityKit Live Activity and WidgetKit extension.
 
 ## Artwork
 
-Built-in ImageGen supplied the bench press photo. The bench press thumbnail reuses it, and the other sample thumbnails use symbols. The muscle maps are simplified exercise illustrations. [Bench press photo](ios/Setline/Resources/workout-hero.png) · [Upper-body map](ios/Setline/Resources/muscle-map.png) · [Lower-body map](ios/Setline/Resources/muscle-map-lower.png)
+Built-in ImageGen supplied the bench press photo. The bench press thumbnail reuses it, and the other sample thumbnails use symbols. The interactive figures use original schematic geometry shared by SwiftUI and the browser. The supplied references informed the anatomy. [Bench press photo](ios/Setline/Resources/workout-hero.png) · [Muscle map geometry](ios/Setline/Resources/MuscleRegions.json)
 
 <details>
 <summary>Hero photo prompt</summary>

@@ -12,6 +12,7 @@ struct TrainingRecords: Codable, Equatable {
     var readiness: [ReadinessCheckIn] = []
     var photos: [DevicePhotoReference] = []
     var predictions: [FuturePrediction] = []
+    var exercisePreferences: [String: ExercisePreference]? = nil
 
     var activeSession: WorkoutSession? { sessions.first { $0.completedAt == nil } }
     var currentRoutines: [RoutineVersion] {
@@ -128,10 +129,12 @@ struct TrainingFiles {
 @MainActor
 final class TrainingRepository {
     private let files: TrainingFiles
+    private let catalog: [Exercise]
     private(set) var records: TrainingRecords
 
-    init(files: TrainingFiles) throws {
+    init(files: TrainingFiles, catalog: [Exercise] = []) throws {
         self.files = files
+        self.catalog = catalog
         records = try files.loadUserData()
     }
 
@@ -142,7 +145,41 @@ final class TrainingRepository {
 
     func addExercise(_ exercise: Exercise) throws {
         try requireName(exercise.name)
+        guard !catalog.contains(where: { $0.id == exercise.id }) else {
+            throw TrainingDataError.conflictingRecord("Create a custom variation to edit a built-in exercise.")
+        }
         try insert(exercise, at: \.exercises)
+    }
+
+    func editExercise(_ exercise: Exercise, at date: Date = Date()) throws {
+        try requireName(exercise.name)
+        guard let index = records.exercises.firstIndex(where: { $0.id == exercise.id }) else {
+            throw TrainingDataError.unknownRecord("Choose a custom exercise to edit.")
+        }
+        let previous = records.exercises[index]
+        if let profile = previous.profile {
+            guard let edited = exercise.profile, edited.equipmentKind == profile.equipmentKind,
+                  edited.variation == profile.variation else {
+                throw TrainingDataError.invalidRecord("Save a new variation when changing exercise equipment or movement identity.")
+            }
+        }
+        var updated = exercise
+        updated.createdAt = previous.createdAt
+        updated.updatedAt = date
+        try commit { $0.exercises[index] = updated }
+    }
+
+    func setExercisePreference(_ preference: ExercisePreference, for id: UUID) throws {
+        guard exercise(id) != nil else { throw TrainingDataError.unknownRecord("This exercise could not be found.") }
+        try commit { next in
+            var preferences = next.exercisePreferences ?? [:]
+            preferences[id.uuidString] = preference == ExercisePreference() ? nil : preference
+            next.exercisePreferences = preferences
+        }
+    }
+
+    private func exercise(_ id: UUID) -> Exercise? {
+        records.exercises.first { $0.id == id } ?? catalog.first { $0.id == id }
     }
 
     @discardableResult
@@ -151,20 +188,22 @@ final class TrainingRepository {
         guard !exercises.isEmpty, Set(exercises.map(\.id)).count == exercises.count else {
             throw TrainingDataError.invalidRecord("A routine needs at least one exercise and distinct prescription IDs.")
         }
-        for entry in exercises {
+        let snapshots = try exercises.map { entry in
             let variant = entry.variant
-            guard records.exercises.contains(variant.exercise), variant.equipment.map(records.equipment.contains) ?? true else {
+            guard let exercise = self.exercise(variant.exercise.id), variant.equipment.map(records.equipment.contains) ?? true else {
                 throw TrainingDataError.unknownRecord("Register the exercise and equipment before using them in a routine.")
             }
             guard variant.measurement.supports(variant.equipment), entry.prescription.isValid(for: variant.measurement) else {
                 throw TrainingDataError.invalidRecord("The prescription and measurement must match the equipment and rep convention.")
             }
+            return PlannedExercise(id: entry.id, variant: ExerciseVariant(exercise: exercise, equipment: variant.equipment,
+                                                                          measurement: variant.measurement), prescription: entry.prescription)
         }
         let index = records.routines.firstIndex { $0.id == id }
         let current = index.flatMap { records.version(records.routines[$0].currentVersionID) }
-        if let current, current.name == name, current.exercises == exercises { return current }
+        if let current, current.name == name, current.exercises == snapshots { return current }
         let version = RoutineVersion(routineID: id, revision: (current?.revision ?? 0) + 1,
-                                     createdAt: date, name: name, exercises: exercises)
+                                     createdAt: date, name: name, exercises: snapshots)
         try commit { next in
             next.routineVersions.append(version)
             if let index { next.routines[index].currentVersionID = version.id }

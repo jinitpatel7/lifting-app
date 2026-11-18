@@ -85,6 +85,7 @@ enum SampleDate {
 @Observable
 final class TrainingModel {
     let sample = SampleData.load()
+    let catalogEntries = CatalogExercise.load()
     private let files = try? TrainingFiles.applicationSupport()
     private(set) var records = TrainingRecords()
     private(set) var preview = SamplePreviewState()
@@ -101,7 +102,7 @@ final class TrainingModel {
             return
         }
         do {
-            let repository = try TrainingRepository(files: files)
+            let repository = try TrainingRepository(files: files, catalog: catalog)
             self.repository = repository
             records = repository.records
         } catch {
@@ -117,6 +118,30 @@ final class TrainingModel {
     }
 
     var activeRoutine: Routine? { sample?.routine(preview.activeRoutineID) }
+    var catalog: [Exercise] { catalogEntries.map(\.exercise) }
+    var library: [Exercise] { catalog + records.exercises }
+
+    func sampleInvolvement(_ routine: Routine) -> MuscleInvolvement {
+        let sampleIDs = Set(routine.exercises.map(\.id))
+        return MuscleInvolvement(catalogEntries.filter { entry in
+            entry.sampleID.map(sampleIDs.contains) ?? false
+        }.compactMap { $0.exercise.profile })
+    }
+
+    func saveExercise(_ exercise: Exercise, editing: Bool) -> Bool {
+        updateUserData { repository in
+            if editing { try repository.editExercise(exercise) }
+            else { try repository.addExercise(exercise) }
+        }
+    }
+
+    func exercisePreference(_ id: UUID) -> ExercisePreference {
+        records.exercisePreferences?[id.uuidString] ?? ExercisePreference()
+    }
+
+    func saveExercisePreference(_ preference: ExercisePreference, id: UUID) -> Bool {
+        updateUserData { try $0.setExercisePreference(preference, for: id) }
+    }
 
     func bodyweight(on day: String, sampleMode: Bool) -> Double? {
         if sampleMode { return preview.bodyweightByDay[day] }

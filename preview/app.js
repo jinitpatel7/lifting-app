@@ -1,4 +1,7 @@
 import { createBrowserStore, kilogramsPerPound, localDayKey } from './storage.js';
+import { createExerciseStore, escapeHTML, exerciseEditor, readExerciseForm, renderExerciseDetail, renderLibrary,
+  renderSearchResults, renderSubstitutions, renderSubstitutionResults } from './exercises.js';
+import { muscleInvolvement, renderMuscleMap } from './muscle-map.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -33,10 +36,12 @@ const dock = document.querySelector('#dock');
 const dialog = document.querySelector('#dialog');
 const announcement = document.querySelector('#announcement');
 const systemDark = matchMedia('(prefers-color-scheme: dark)');
-const store = createBrowserStore({
+const storage = {
   getItem: key => localStorage.getItem(key),
   setItem: (key, value) => localStorage.setItem(key, value),
-});
+};
+const store = createBrowserStore(storage);
+const exerciseStore = createExerciseStore(storage);
 const tabs = [
   ['today', 'Today', 'Today / Log'], ['routines', 'Routines', 'Routines'],
   ['history', 'History', 'History / Progress'], ['settings', 'Settings', 'Settings'],
@@ -48,6 +53,7 @@ function readStorage(load, fallback) {
 }
 
 const saved = readStorage(store.loadPreferences, {});
+const newExerciseQuery = (muscle = '') => ({ name: '', muscle, equipment: '', pattern: '', collection: 'all' });
 const state = {
   tab: tabs.some(([id]) => `#${id}` === location.hash) ? location.hash.slice(1) : 'today',
   appearance: saved.appearance ?? 'system',
@@ -57,10 +63,24 @@ const state = {
   preview: readStorage(store.loadSample, { weights: {}, active: null }),
   sampleMode: false,
   date: localDayKey(), routine: null, history: 'progress', expanded: new Set(),
+  libraryOpen: false, exerciseDetail: null, substituteFor: null, availableEquipment: new Set(),
+  exerciseQuery: newExerciseQuery(), exercises: readStorage(exerciseStore.load, { custom: [], preferences: {} }),
+  muscleRegion: '',
 };
 
-const response = await fetch(asset('SampleData.json')).catch(() => null);
-const sample = response?.ok ? await response.json().catch(() => null) : null;
+async function bundled(name) {
+  try {
+    const response = await fetch(asset(name));
+    return response.ok ? await response.json() : null;
+  } catch { return null; }
+}
+
+const [sample, catalogResource, anatomy] = await Promise.all([
+  bundled('SampleData.json'), bundled('ExerciseCatalog.json'), bundled('MuscleRegions.json'),
+]);
+const catalog = Array.isArray(catalogResource) ? catalogResource : [];
+const libraryItems = () => [...catalog, ...state.exercises.custom];
+const libraryExercise = id => libraryItems().find(exercise => exercise.id === id);
 
 function savePreferences() {
   const { appearance, opaque, unit } = state;
@@ -164,25 +184,9 @@ function workoutHero(routine, label = 'Planned workout') {
 }
 
 function muscleMap(routine) {
-  if (!routine) return '';
-  const diagram = routine.id === 'upper-a' ? 'muscle-map.png' : 'muscle-map-lower.png';
-  return `
-    <section class="surface muscle-card" aria-labelledby="muscle-title">
-      <div class="section-top">
-        <h2 id="muscle-title">Muscle map</h2>
-        <span class="tile-icon small">${icon('body', 18)}</span>
-      </div>
-      <figure class="muscle-figure">
-        <div class="anatomy" aria-hidden="true">
-          <img src="${asset(diagram)}" alt="">
-          <span class="ghost-label">Front</span><span class="ghost-label">Back</span>
-        </div>
-        <figcaption class="muscle-key">
-          <div><span class="key-dot primary-dot"></span><div><strong>Primary</strong><span>${routine.primaryMuscles}</span></div></div>
-          <div><span class="key-dot secondary-dot"></span><div><strong>Secondary</strong><span>${routine.secondaryMuscles}</span></div></div>
-        </figcaption>
-      </figure>
-    </section>`;
+  const ids = new Set(routine?.exercises.map(exercise => exercise.id) ?? []);
+  const targets = muscleInvolvement(catalog.filter(exercise => ids.has(exercise.sampleID)));
+  return renderMuscleMap(anatomy, targets, state.muscleRegion);
 }
 
 function bodyweight() {
@@ -241,7 +245,8 @@ function exercises(routine) {
 
 function todayPage() {
   const routine = planned();
-  return `${sectionTitle('Today', longDate(today()))}${weekView()}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine)}</div><div class="dashboard-side">${muscleMap(routine)}${bodyweight()}</div>${routine ? `<div class="dashboard-exercises">${exercises(routine)}</div>` : ''}</div>`;
+  const side = routine ? muscleMap(routine) + bodyweight() : bodyweight() + muscleMap(null);
+  return `${sectionTitle('Today', longDate(today()))}${weekView()}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine)}</div><div class="dashboard-side">${side}</div>${routine ? `<div class="dashboard-exercises">${exercises(routine)}</div>` : ''}</div>`;
 }
 
 function emptyCard(title, copy, symbol) {
@@ -249,10 +254,23 @@ function emptyCard(title, copy, symbol) {
 }
 
 function routinesPage() {
-  if (!state.sampleMode) return `${sectionTitle('Routines', 'Your training library')}${emptyCard('No saved routines', 'Your routines will appear here.', 'routines')}`;
+  if (state.libraryOpen) return exerciseLibraryPage();
+  const entry = `<button type="button" class="surface routine-card library-entry" data-action="exercise-library">
+    <span class="tile-icon">${icon('dumbbell', 22)}</span><strong>Exercise Library</strong><span class="round-arrow">${icon('chevron', 17)}</span></button>`;
+  if (!state.sampleMode) return `${sectionTitle('Routines', 'Your training library')}${entry}${emptyCard('No saved routines', 'Your routines will appear here.', 'routines')}`;
   const routine = routineFor(state.routine);
   if (routine) return `<button type="button" class="back-button" data-action="routine" data-value="">${icon('arrow', 17)} All routines</button>${sectionTitle('Routines')}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine, 'Sample routine')}</div><div class="dashboard-side">${muscleMap(routine)}</div><div class="dashboard-exercises">${exercises(routine)}</div></div>`;
-  return `${sectionTitle('Routines', 'Training library')}<p class="screen-description">Sample routines show how your own workouts will appear.</p><div class="routine-grid">${sample.routines.map((item, index) => `<button class="surface routine-card" type="button" data-action="routine" data-value="${item.id}"><span class="tile-icon ${index ? 'coral' : ''}">${icon('dumbbell', 24)}</span><span class="routine-description"><strong>${item.name}</strong><span>${item.exercises.length} exercises · ${item.minutes} min</span><span>${item.primaryMuscles}</span></span><span class="round-arrow">${icon('chevron', 17)}</span></button>`).join('')}</div>`;
+  return `${sectionTitle('Routines', 'Training library')}${entry}<p class="screen-description">Sample routines show how your own workouts will appear.</p><div class="routine-grid">${sample.routines.map((item, index) => `<button class="surface routine-card" type="button" data-action="routine" data-value="${item.id}"><span class="tile-icon ${index ? 'coral' : ''}">${icon('dumbbell', 24)}</span><span class="routine-description"><strong>${item.name}</strong><span>${item.exercises.length} exercises · ${item.minutes} min</span><span>${item.primaryMuscles}</span></span><span class="round-arrow">${icon('chevron', 17)}</span></button>`).join('')}</div>`;
+}
+
+function exerciseLibraryPage() {
+  const source = libraryExercise(state.substituteFor);
+  const exercise = libraryExercise(state.exerciseDetail);
+  const back = (label, action) => `<button type="button" class="back-button" data-action="${action}">${icon('arrow', 17)} ${label}</button>`;
+  if (source && state.exerciseDetail === source.id) return back('Exercise details', 'substitution-back')
+    + renderSubstitutions(source, libraryItems(), state.availableEquipment, state.exercises.preferences);
+  if (exercise) return back(source ? 'Substitutions' : 'All exercises', 'exercise-back') + renderExerciseDetail(exercise, state.exercises);
+  return back('All routines', 'library-back') + renderLibrary(catalog, state.exercises, state.exerciseQuery);
 }
 
 function chart() {
@@ -326,6 +344,7 @@ function render({ scroll = false, focus = null } = {}) {
 
 let dialogAction = null;
 let dialogTrigger = null;
+let exerciseDraft = null;
 
 function showDialog(type, title, body, trigger) {
   dialogAction = type;
@@ -339,6 +358,12 @@ function showWeight(trigger) {
   const value = bodyweightValue();
   const entered = value ? Math.round(value / kilogramsPerUnit() * 10) / 10 : '';
   showDialog('weight', 'Log bodyweight', `<p class="dialog-description">${state.sampleMode ? 'Sample entry · ' : ''}${longDate(state.date)}</p><form id="weight-form"><label for="weight-input">Bodyweight (${state.unit})</label><input id="weight-input" type="number" inputmode="decimal" name="weight" required min="0.1" step="0.1" value="${entered}" autofocus><div id="weight-error" role="alert"></div><button class="primary" type="submit">${icon('check', 19)} Save entry</button></form>`, trigger);
+}
+
+function showExerciseEditor(source, editing, trigger) {
+  const draft = editing ? source : { ...source, id: crypto.randomUUID(), name: source ? `${source.name} variation` : '' };
+  exerciseDraft = { draft, editing };
+  showDialog('exercise', editing ? 'Edit exercise' : 'New custom exercise', exerciseEditor(draft, editing), trigger);
 }
 
 function showSession(trigger) {
@@ -355,6 +380,9 @@ function selectTab(tab, focus = false) {
   if (!tabs.some(([id]) => id === tab)) return;
   state.tab = tab;
   state.routine = null;
+  state.libraryOpen = false;
+  state.exerciseDetail = null;
+  state.substituteFor = null;
   if (location.hash !== `#${tab}`) history.pushState(null, '', `#${tab}`);
   render({ scroll: true, focus: focus ? '#main' : null });
 }
@@ -370,7 +398,56 @@ main.addEventListener('toggle', event => {
   else state.expanded.delete(exercise);
 }, true);
 
+main.addEventListener('input', event => {
+  if (event.target.id !== 'exercise-search') return;
+  state.exerciseQuery.name = event.target.value;
+  document.querySelector('#exercise-results').innerHTML = renderSearchResults(catalog, state.exercises, state.exerciseQuery);
+});
+
+main.addEventListener('change', event => {
+  const target = event.target;
+  if (target.id === 'muscle-region-picker') {
+    state.muscleRegion = target.value;
+    render({ focus: '#muscle-region-picker' });
+  } else if (target.hasAttribute('data-exercise-filter')) {
+    state.exerciseQuery[target.dataset.exerciseFilter] = target.value;
+    document.querySelector('#exercise-results').innerHTML = renderSearchResults(catalog, state.exercises, state.exerciseQuery);
+  } else if (target.hasAttribute('data-available-equipment')) {
+    if (target.checked) state.availableEquipment.add(target.value);
+    else state.availableEquipment.delete(target.value);
+    document.querySelector('#substitution-results').innerHTML = renderSubstitutionResults(libraryExercise(state.substituteFor), libraryItems(),
+      state.availableEquipment, state.exercises.preferences);
+  }
+});
+
+function selectMuscle(target) {
+  const { muscleRegion, muscleSide } = target.dataset;
+  state.muscleRegion = muscleRegion;
+  render({ focus: `[data-muscle-region="${muscleRegion}"][data-muscle-side="${muscleSide}"]` });
+}
+
+main.addEventListener('keydown', event => {
+  const target = event.target.closest('[data-muscle-region]');
+  if (target && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    selectMuscle(target);
+  }
+});
+
+main.addEventListener('error', event => {
+  if (!event.target.matches?.('[data-demonstration]')) return;
+  const placeholder = document.createElement('p');
+  placeholder.className = 'media-placeholder';
+  placeholder.textContent = 'No demonstration media available';
+  event.target.replaceWith(placeholder);
+}, true);
+
 document.addEventListener('click', event => {
+  const region = event.target.closest('[data-muscle-region]');
+  if (region) {
+    selectMuscle(region);
+    return;
+  }
   const link = event.target.closest('a[href]');
   const tab = link?.getAttribute('href').slice(1);
   if (tabs.some(([id]) => id === tab) && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
@@ -389,6 +466,33 @@ document.addEventListener('click', event => {
     case 'transparency': state.opaque = !state.opaque; savePreferences(); render({ focus }); break;
     case 'unit': state.unit = value; savePreferences(); render({ focus }); break;
     case 'date': state.date = value; render({ focus }); break;
+    case 'exercise-library':
+      selectTab('routines');
+      state.libraryOpen = true;
+      state.exerciseQuery = newExerciseQuery(value);
+      render({ scroll: true, focus: '#main' });
+      break;
+    case 'library-back': state.libraryOpen = false; render({ scroll: true, focus: '#main' }); break;
+    case 'exercise-detail': state.exerciseDetail = value; render({ scroll: true, focus: '#main' }); break;
+    case 'exercise-back': state.exerciseDetail = state.substituteFor; render({ scroll: true, focus: '#main' }); break;
+    case 'exercise-substitute':
+      state.substituteFor = value;
+      state.availableEquipment = new Set();
+      render({ scroll: true, focus: '#main' });
+      break;
+    case 'substitution-back': state.substituteFor = null; render({ scroll: true, focus: '#main' }); break;
+    case 'exercise-favorite':
+    case 'exercise-exclude':
+      try {
+        state.exercises = exerciseStore.togglePreference(value, action === 'exercise-favorite' ? 'favorite' : 'excluded');
+        render({ focus });
+      } catch {
+        showDialog('error', 'Exercise preference', '<p class="dialog-description">The preference could not be saved in this browser.</p>', focus);
+      }
+      break;
+    case 'exercise-add': showExerciseEditor(null, false, focus); break;
+    case 'exercise-edit': showExerciseEditor(libraryExercise(value), true, focus); break;
+    case 'exercise-variation': showExerciseEditor(libraryExercise(value), false, focus); break;
     case 'sample-mode':
       state.sampleMode = !state.sampleMode;
       state.date = today();
@@ -430,9 +534,35 @@ dialog.addEventListener('close', () => {
   const trigger = dialogTrigger;
   dialogAction = null;
   dialogTrigger = null;
+  exerciseDraft = null;
   if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
 });
+dialog.addEventListener('change', event => {
+  const field = event.target;
+  if (dialogAction !== 'exercise' || !field.checked || !['primary', 'secondary'].includes(field.name)) return;
+  const other = field.name === 'primary' ? 'secondary' : 'primary';
+  for (const input of field.form.elements) {
+    if (input.name === other && input.value === field.value) input.checked = false;
+  }
+});
 dialog.addEventListener('submit', event => {
+  if (dialogAction === 'exercise' && exerciseDraft) {
+    event.preventDefault();
+    const { draft, editing } = exerciseDraft;
+    try {
+      const exercise = readExerciseForm(event.target, draft, editing);
+      state.exercises = exerciseStore.saveExercise(exercise, editing);
+      state.exerciseDetail = exercise.id;
+      state.substituteFor = null;
+      dialogTrigger = null;
+      dialog.close();
+      render({ scroll: true, focus: '#main' });
+      announce('Exercise saved.');
+    } catch (error) {
+      dialog.querySelector('.entry-error').textContent = error.message || 'The exercise could not be saved.';
+    }
+    return;
+  }
   if (dialogAction !== 'weight') return;
   event.preventDefault();
   const input = dialog.querySelector('#weight-input');
