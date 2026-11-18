@@ -4,25 +4,46 @@ struct PersonalTodayScreen: View {
     let records: TrainingRecords
     let unit: WeightUnit
     let browse: () -> Void
-    let start: (UUID, UUID?) -> Void
+    let start: (ScheduleOccurrence) -> Void
     let startEmpty: () -> Void
     let editWeight: (String) -> Void
     let browseMuscle: (MuscleGroup) -> Void
+    let openSchedule: () -> Void
+    let move: (ScheduleOccurrence) -> Void
+    let skip: (ScheduleOccurrence) -> Void
+    let logReadiness: (WorkoutDate) -> Void
     @Binding var selectedDay: String?
+    @State private var anchor: WorkoutDate?
+    @State private var recentView = false
+    @State private var pendingSkip: ScheduleOccurrence?
 
     var body: some View {
         TimelineView(.everyMinute) { context in
             let today = WorkoutDate(context.date)
-            let week = WorkoutDate.week(containing: today)
-            let day = week.first { $0.key == selectedDay } ?? today
-            let planned = records.schedule.filter { $0.localDate == day }
+            let settings = records.scheduleSettings ?? ScheduleSettings()
+            let week = settings.dates(around: anchor ?? today)
+            let day = week.first { $0.key == selectedDay } ?? anchor ?? today
+            let slots = records.scheduled(on: week, today: today)
+            let planned = slots.filter { $0.date == day }
             VStack(spacing: 14) {
                 PageHeading(title: "Today", subtitle: today.formatted(.dateTime.weekday(.wide).month(.wide).day()))
                 WeekScheduleCard(days: week.map { date in
-                    let scheduled = records.schedule.first { $0.localDate == date }
-                    let name = scheduled.flatMap { records.version($0.routineVersionID)?.name }
-                    return WeekScheduleCard.Day(date: date.key, routineName: name)
-                }, selection: day.key) { selectedDay = $0 }
+                    let entries = slots.filter { $0.date == date }
+                    let names = entries.compactMap { entry in
+                        records.version(entry.versionID).map { "\(entry.status.rawValue) \($0.name)" }
+                    }
+                    return WeekScheduleCard.Day(date: date.key, routineName: names.isEmpty ? nil : names.joined(separator: ", "),
+                        statuses: entries.map(\.status))
+                }, selection: day.key, title: settings.mode.rawValue) { selectedDay = $0 }
+                HStack {
+                    Button { navigate(-7, today: today) } label: { Image(systemName: "chevron.left").frame(minWidth: 44, minHeight: 44) }
+                        .accessibilityLabel("Previous seven days")
+                    Button("Today") { navigate(0, today: today) }.frame(minHeight: 44)
+                    Button { navigate(7, today: today) } label: { Image(systemName: "chevron.right").frame(minWidth: 44, minHeight: 44) }
+                        .accessibilityLabel("Next seven days")
+                    Spacer()
+                    Button("Training schedule", action: openSchedule).buttonStyle(SecondaryButton())
+                }.foregroundStyle(Palette.purple)
                 if planned.isEmpty {
                     PersonalStatus(title: "No workout scheduled", symbol: "calendar") {
                         Button("View routines", action: browse).buttonStyle(SecondaryButton())
@@ -31,23 +52,86 @@ struct PersonalTodayScreen: View {
                     }
                 }
                 ForEach(planned) { workout in
-                    if let version = records.version(workout.routineVersionID) {
-                        PersonalRoutineCard(version: version, unit: unit, subtitle: "Planned workout", active: records.activeSession != nil) {
-                            start(version.id, workout.id)
-                        }
+                    if let version = records.version(workout.versionID) {
+                        scheduleCard(workout, version: version, today: today)
                     }
                 }
                 BodyweightCard(value: records.bodyweight(on: day)?.mass.kilograms, unit: unit,
                                date: today == day ? "Today" : day.formatted(.dateTime.month(.abbreviated).day())) {
                     editWeight(day.key)
                 }
-                let plannedProfiles = planned.flatMap { workout in
-                    records.version(workout.routineVersionID)?.exercises.compactMap { entry in
+                readiness(on: day, today: today)
+                let plannedProfiles = planned.filter { [.planned, .rescheduled, .active].contains($0.status) }.flatMap { workout in
+                    records.version(workout.versionID)?.exercises.compactMap { entry in
                         let exercise = entry.variant.exercise
                         return exercise.profile ?? records.exercises.first { $0.id == exercise.id }?.profile
                     } ?? []
                 }
-                InteractiveMuscleMap(involvement: MuscleInvolvement(plannedProfiles), browse: browseMuscle)
+                let asOf = min(day, today)
+                Picker("Muscle map view", selection: $recentView) {
+                    Text("Planned targets").tag(false)
+                    Text("Recent training").tag(true)
+                }.pickerStyle(.segmented)
+                InteractiveMuscleMap(involvement: MuscleInvolvement(plannedProfiles), browse: browseMuscle,
+                    recent: recentView ? records.recentMuscles(asOf: asOf) : nil, asOf: asOf)
+            }
+        }
+        .onChange(of: records.scheduleSettings) { anchor = nil; selectedDay = nil }
+        .confirmationDialog("Skip scheduled session?", isPresented: Binding(get: { pendingSkip != nil },
+            set: { if !$0 { pendingSkip = nil } }), titleVisibility: .visible) {
+            Button("Confirm skip", role: .destructive) { if let pendingSkip { skip(pendingSkip) } }
+        } message: {
+            Text(pendingSkip?.rotationID == nil ? "This marks the planned session as skipped." : "This advances the rotation by one step.")
+        }
+    }
+
+    private func navigate(_ distance: Int, today: WorkoutDate) {
+        anchor = distance == 0 ? nil : (anchor ?? today).offset(distance)
+        selectedDay = (anchor ?? today).key
+    }
+
+    private func scheduleCard(_ workout: ScheduleOccurrence, version: RoutineVersion, today: WorkoutDate) -> some View {
+        PersonalStatus(title: version.name, symbol: workout.status.symbol) {
+            Label(workout.status.rawValue, systemImage: workout.status.symbol)
+                .font(.caption.weight(.semibold)).foregroundStyle(workout.status.tint)
+            if workout.status == .moved, let destination = workout.record?.localDate {
+                Text("Rescheduled to \(destination.key)").font(.caption)
+            } else if let former = workout.record?.movedFrom?.last {
+                Text("Moved from \(former.key)").font(.caption)
+            } else if workout.rotationID != nil {
+                Text("Rotating sequence").font(.caption)
+            }
+            if let block = records.programBlocks.first(where: { $0.id == workout.record?.programBlockID }) {
+                let index = block.weekIndex(for: workout.record?.movedFrom?.first ?? workout.date)
+                let week = block.weeks?[index] ?? ProgramWeek()
+                Text("\(block.name) · Week \(index + 1) · \(week.kind.rawValue)").font(.caption)
+                if !week.notes.isEmpty { Text(week.notes).font(.subheadline) }
+            }
+            if workout.canChange || workout.status == .active { RoutinePlanRows(version: version, unit: unit) }
+            if workout.status == .active || (workout.canChange && (workout.rotationID == nil || workout.date == today)) {
+                Button(records.activeSession == nil ? "Start scheduled workout" : "Resume workout") { start(workout) }.buttonStyle(PrimaryButton())
+            }
+            if workout.canChange {
+                HStack {
+                    Button("Move session") { move(workout) }.buttonStyle(SecondaryButton())
+                    Button("Skip session") { pendingSkip = workout }.buttonStyle(SecondaryButton())
+                }
+            }
+        }
+    }
+
+    private func readiness(on day: WorkoutDate, today: WorkoutDate) -> some View {
+        let entry = records.readiness.last { $0.localDate == day }
+        return PersonalStatus(title: "Readiness", symbol: "slider.horizontal.3") {
+            if let entry {
+                let ratings: [String?] = ["Soreness \(entry.soreness)/5", entry.sleepQuality.map { "Sleep quality \($0)/5" },
+                    "Energy \(entry.energy)/5", entry.motivation.map { "Motivation \($0)/5" }]
+                Text(ratings.compactMap { $0 }.joined(separator: " · ")).font(.subheadline)
+            } else {
+                Text("Optional training context").font(.subheadline).foregroundStyle(Palette.muted)
+            }
+            if day <= today {
+                Button(entry == nil ? "Log readiness" : "Edit check-in") { logReadiness(day) }.buttonStyle(SecondaryButton())
             }
         }
     }

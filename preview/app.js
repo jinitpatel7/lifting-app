@@ -7,6 +7,8 @@ import { exerciseOptions, renderCompletedSessions, renderPersonalRoutines, rende
 import { renderLoggedHistory, renderWorkout, updateWorkoutFields, workoutStep } from './workout-ui.js';
 import { clockText, restRemaining, workoutTimes } from './workout-tools.js';
 import { loadKey } from './workout-log.js';
+import { offsetDay, recentMuscles, scheduleEntries, scheduleWindow, statusLabels } from './schedule.js';
+import { readinessFields, renderMove, renderProgramWeek, renderReadiness, renderSchedulePlanner, rotationSteps, scheduleSummary } from './schedule-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -71,7 +73,7 @@ const state = {
   date: localDayKey(), routine: null, history: 'progress', expanded: new Set(),
   libraryOpen: false, exerciseDetail: null, substituteFor: null, availableEquipment: new Set(),
   exerciseQuery: newExerciseQuery(), exercises: readStorage(exerciseStore.load, { custom: [], preferences: {} }),
-  muscleRegion: '',
+  muscleRegion: '', muscleView: 'planned', calendarAnchor: null,
   planRecords: readStorage(routineStore.load, { categories: [], routines: [], sessions: [], schedule: [] }),
   builder: null, routineCategory: '',
 };
@@ -92,8 +94,17 @@ const libraryExercise = id => libraryItems().find(exercise => exercise.id === id
 const personalRoutine = id => state.planRecords.routines.find(routine => routine.id === id);
 const personalSession = id => state.planRecords.sessions.find(session => session.id === id);
 const personalVersion = id => state.planRecords.routines.flatMap(routine => routine.versions).find(version => version.id === id);
-const scheduledFor = date => state.planRecords.schedule.filter(entry => entry.date === date);
+const scheduledFor = date => scheduleEntries(state.planRecords, [date], today());
 const activePersonal = () => state.sampleMode ? null : state.planRecords.sessions.find(session => !session.completedAt);
+let lastLocalDay = localDayKey();
+
+function refreshLocalCalendar() {
+  const current = localDayKey();
+  if (state.sampleMode || current === lastLocalDay || dialog.open) return;
+  if (!state.calendarAnchor && state.date === lastLocalDay) state.date = current;
+  lastLocalDay = current;
+  if (state.tab === 'today') render();
+}
 
 function savePreferences() {
   const { appearance, opaque, unit } = state;
@@ -154,20 +165,28 @@ function sectionTitle(title, subtitle) {
 }
 
 function weekView() {
-  const monday = day(today());
-  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
-  const week = state.sampleMode ? sample.week : Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(monday);
-    date.setUTCDate(date.getUTCDate() + index);
-    return { date: date.toISOString().slice(0, 10) };
-  });
-  return `<section class="surface week" aria-labelledby="week-title"><div class="section-top"><h2 id="week-title">This week</h2><span class="meta">${icon('calendar', 15)} ${shortDate(week[0].date)} – ${shortDate(week.at(-1).date)}</span></div><div class="days">${week.map(({ date, routineID }) => {
-    const routine = state.sampleMode ? routineFor(routineID) : personalVersion(scheduledFor(date)[0]?.versionID);
+  const settings = state.planRecords.scheduleSettings;
+  const week = state.sampleMode ? sample.week : scheduleWindow(state.calendarAnchor ?? today(), settings).map(date => ({ date }));
+  const weekEntries = state.sampleMode ? [] : scheduleEntries(state.planRecords, week.map(entry => entry.date), today());
+  const title = state.sampleMode ? 'This week' : settings?.mode === 'rolling' ? 'Rolling seven days' : 'Training week';
+  const controls = state.sampleMode ? '' : `<div class="schedule-nav"><button type="button" class="secondary" data-action="schedule-calendar" data-value="-7">Previous</button>
+    <button type="button" class="secondary" data-action="schedule-calendar" data-value="0">Today</button>
+    <button type="button" class="secondary" data-action="schedule-calendar" data-value="7">Next</button>
+    <button type="button" class="secondary" data-action="schedule-open">Training schedule</button></div>`;
+  return `<section class="surface week" aria-labelledby="week-title"><div class="section-top"><h2 id="week-title">${title}</h2><span class="meta">${icon('calendar', 15)} ${shortDate(week[0].date)} – ${shortDate(week.at(-1).date)}</span></div><div class="days">${week.map(({ date, routineID }) => {
+    const entries = weekEntries.filter(item => item.date === date);
+    const routine = state.sampleMode ? routineFor(routineID) : personalVersion(entries[0]?.versionID);
     const selected = date === state.date;
     const isToday = date === today();
-    const description = routine?.name ?? (state.sampleMode ? 'rest day' : 'no workout scheduled');
-    return `<button class="day${selected ? ' selected' : ''}" type="button" data-action="date" data-value="${date}" aria-pressed="${selected}" ${isToday ? 'aria-current="date"' : ''} aria-label="${longDate(date)}, ${escapeHTML(description)}"><span class="day-name">${dateLabel(date, { weekday: 'short' })}</span><span class="day-number">${day(date).getUTCDate()}</span><span class="day-dot${routine ? ' scheduled' : ''}"></span></button>`;
-  }).join('')}</div></section>`;
+    const weekday = dateLabel(date, { weekday: 'short' });
+    const number = day(date).getUTCDate();
+    const description = entries.length ? entries.map(entry => statusLabels[entry.status] + ' ' + personalVersion(entry.versionID)?.name).join(', ') :
+      routine?.name ?? (state.sampleMode ? 'rest day' : 'no workout scheduled');
+    const dots = entries.length ? entries.slice(0, 3).map(entry => `<span class="day-dot schedule-${entry.status}"></span>`).join('') :
+      `<span class="day-dot${routine ? ' scheduled' : ''}"></span>`;
+    const label = (state.sampleMode ? '' : weekday + ' ' + number + ' · ') + longDate(date) + ', ' + description;
+    return `<button class="day${selected ? ' selected' : ''}" type="button" data-action="date" data-value="${date}" aria-pressed="${selected}" ${isToday ? 'aria-current="date"' : ''} aria-label="${escapeHTML(label)}"><span class="day-name">${weekday}</span> <span class="day-number">${number}</span><span class="day-markers">${dots}</span></button>`;
+  }).join('')}</div>${controls}</section>`;
 }
 
 function workoutHero(routine, label = 'Planned workout') {
@@ -259,17 +278,40 @@ function exercises(routine) {
 function todayPage() {
   const routine = planned();
   const scheduled = state.sampleMode ? [] : scheduledFor(state.date);
-  const scheduledExercises = scheduled.flatMap(entry => personalVersion(entry.versionID)?.exercises ?? [])
-    .map(entry => libraryExercise(entry.exercise.id)).filter(Boolean);
-  const side = routine ? muscleMap(routine) + bodyweight() : bodyweight() + (scheduledExercises.length
-    ? renderMuscleMap(anatomy, muscleInvolvement(scheduledExercises), state.muscleRegion) : muscleMap(null));
+  const scheduledExercises = scheduled.filter(entry => ['planned', 'rescheduled', 'active'].includes(entry.status))
+    .flatMap(entry => personalVersion(entry.versionID)?.exercises ?? []).map(entry => entry.exercise.primary ? entry.exercise : libraryExercise(entry.exercise.id)).filter(Boolean);
+  const context = state.sampleMode ? {} : {
+    controls: `<div class="schedule-nav" role="group" aria-label="Muscle map view">${[['planned', 'Planned targets'], ['recent', 'Recent training']].map(([key, label]) =>
+      `<button type="button" class="secondary" aria-pressed="${state.muscleView === key}" data-action="muscle-context" data-value="${key}">${label}</button>`).join('')}</div>`,
+    ...(state.muscleView === 'recent' ? { recent: recentMuscles(state.planRecords.sessions, state.date > today() ? today() : state.date, libraryExercise),
+      asOf: shortDate(state.date > today() ? today() : state.date) } : {}),
+  };
+  const side = state.sampleMode ? (routine ? muscleMap(routine) + bodyweight() : bodyweight() + muscleMap(null)) :
+    bodyweight() + readinessCard() + renderMuscleMap(anatomy, muscleInvolvement(scheduledExercises), state.muscleRegion, context);
   const cards = scheduled.map(entry => {
     const version = personalVersion(entry.versionID);
-    return version ? `<article class="surface settings-card saved-routine"><p class="eyebrow">Scheduled workout</p><h2>${escapeHTML(version.name)}</h2>
-      ${renderPlan(version, state.unit)}<button type="button" class="primary" data-action="log-start-scheduled" data-value="${entry.id}">${activePersonal() ? 'Resume workout' : 'Start scheduled workout'}</button></article>` : '';
+    if (!version) return '';
+    const summary = scheduleSummary(state.planRecords, entry, shortDate);
+    const actionable = ['planned', 'rescheduled', 'missed'].includes(entry.status) && !(entry.rotationID && entry.status === 'missed');
+    const label = entry.status === 'active' || activePersonal() ? 'Resume workout' : 'Start scheduled workout';
+    return `<article class="surface settings-card saved-routine schedule-card schedule-${entry.status}" data-schedule-date="${entry.date}">
+      <p class="eyebrow schedule-label">${summary.name}${summary.detail ? ' · ' + escapeHTML(summary.detail) : ''}</p><h2>${escapeHTML(version.name)}</h2>
+      ${summary.block ? `<p class="chart-subtitle">${escapeHTML(summary.block.name)} · Week ${summary.index + 1} · ${summary.kind}${summary.notes ? ' · ' + escapeHTML(summary.notes) : ''}</p>` : ''}
+      ${actionable || entry.status === 'active' ? renderPlan(version, state.unit) : ''}
+      ${(actionable && (!entry.rotationID || entry.date === today())) || entry.status === 'active' ? `<button type="button" class="primary" data-action="log-start-scheduled" data-value="${entry.key}">${label}</button>` : ''}
+      ${actionable ? `<div class="schedule-nav"><button type="button" class="secondary" data-action="schedule-move" data-value="${entry.key}">Move session</button>
+      <button type="button" class="secondary" data-action="schedule-skip" data-value="${entry.key}">Skip session</button></div>` : ''}</article>`;
   }).join('');
   const empty = state.sampleMode ? '' : `<button type="button" class="secondary" data-action="log-start-empty">${activePersonal() ? 'Resume active workout' : 'Start empty workout'}</button>`;
   return `${sectionTitle('Today', longDate(today()))}${weekView()}<div class="dashboard"><div class="dashboard-hero stack">${cards || workoutHero(routine)}${empty}</div><div class="dashboard-side">${side}</div>${routine ? `<div class="dashboard-exercises">${exercises(routine)}</div>` : ''}</div>`;
+}
+
+function readinessCard() {
+  const entry = state.planRecords.readiness?.find(item => item.date === state.date);
+  return `<section class="surface settings-card"><h2>Readiness</h2>
+    ${entry ? `<p class="chart-subtitle">${Object.entries(readinessFields).map(([key, name]) => name + ' ' + entry[key] + '/5').join(' · ')}</p>` :
+      '<p class="chart-subtitle">Optional training context</p>'}
+    ${state.date <= today() ? `<button type="button" class="secondary" data-action="schedule-readiness">${entry ? 'Edit check-in' : 'Log readiness'}</button>` : ''}</section>`;
 }
 
 function emptyCard(title, copy, symbol) {
@@ -390,6 +432,131 @@ function showWeight(trigger) {
   showDialog('weight', 'Log bodyweight', `<p class="dialog-description">${state.sampleMode ? 'Sample entry · ' : ''}${longDate(state.date)}</p><form id="weight-form"><label for="weight-input">Bodyweight (${state.unit})</label><input id="weight-input" type="number" inputmode="decimal" name="weight" required min="0.1" step="0.1" value="${entered}" autofocus><div id="weight-error" role="alert"></div><button class="primary" type="submit">${icon('check', 19)} Save entry</button></form>`, trigger);
 }
 
+let rotationDraft = [];
+
+function openSchedule(trigger, section = '') {
+  showDialog('schedule-planner', 'Training schedule', renderSchedulePlanner(state.planRecords, today(), state.date, rotationDraft, section), trigger);
+}
+
+function openProgram(id, index, trigger) {
+  const block = state.planRecords.programBlocks.find(item => item.id === id);
+  if (!block) return;
+  showDialog('schedule-program', escapeHTML(block.name), renderProgramWeek(state.planRecords, block, index), trigger);
+}
+
+function handleScheduleAction(action, value, target, focus) {
+  const get = id => dialog.querySelector('#' + id)?.value ?? '';
+  const change = entry => { state.planRecords = routineStore.changeSchedule(entry, today()); };
+  const sourceDate = target.closest('[data-schedule-date]')?.dataset.scheduleDate;
+  const program = dialog.querySelector('.schedule-program');
+  const trigger = dialogTrigger ?? focus;
+  const saved = message => {
+    dialog.close();
+    render();
+    announce(message);
+  };
+  try {
+    switch (action) {
+      case 'schedule-calendar': {
+        state.calendarAnchor = value === '0' ? null : offsetDay(state.calendarAnchor ?? today(), Number(value));
+        state.date = state.calendarAnchor ?? today();
+        return render({ focus });
+      }
+      case 'schedule-open':
+        rotationDraft = [...(state.planRecords.rotations?.find(entry => !entry.endBefore)?.versions ?? [])];
+        return openSchedule(focus);
+      case 'schedule-open-blocks': return openSchedule(trigger, 'blocks');
+      case 'schedule-save-settings':
+        change({ action: 'settings', weekStart: Number(get('schedule-week-start')), mode: get('schedule-view') });
+        state.calendarAnchor = null;
+        state.date = today();
+        return saved('Calendar view saved.');
+      case 'schedule-save-weekday':
+        change({ action: 'weekday', weekday: Number(get('schedule-weekday')), versionID: get('schedule-weekday-version'), start: get('schedule-weekday-start') });
+        render();
+        return openSchedule(trigger, 'weekday');
+      case 'schedule-end-weekday':
+        change({ action: 'stopWeekday', id: value });
+        render();
+        return openSchedule(trigger, 'weekday');
+      case 'schedule-step-add': {
+        const selected = get('schedule-rotation-version');
+        if (!selected) throw new Error('Choose a routine version for the next step.');
+        rotationDraft.push(selected);
+        dialog.querySelector('#schedule-rotation-version').value = '';
+        break;
+      }
+      case 'schedule-step-up':
+      case 'schedule-step-down': {
+        const from = Number(value);
+        const to = from + (action === 'schedule-step-up' ? -1 : 1);
+        [rotationDraft[from], rotationDraft[to]] = [rotationDraft[to], rotationDraft[from]];
+        break;
+      }
+      case 'schedule-step-remove': rotationDraft.splice(Number(value), 1); break;
+      case 'schedule-save-rotation':
+        change({ action: 'rotation', versions: rotationDraft, start: get('schedule-rotation-start'), interval: Number(get('schedule-rotation-interval')) });
+        return saved('Rotation saved.');
+      case 'schedule-end-rotation':
+        change({ action: 'stopRotation', id: value });
+        rotationDraft = [];
+        render();
+        return openSchedule(trigger, 'rotation');
+      case 'schedule-save-block':
+        change({ action: 'block', name: get('schedule-block-name'), start: get('schedule-block-start'), count: Number(get('schedule-block-count')) });
+        return openProgram(state.planRecords.programBlocks.at(-1).id, 0, trigger);
+      case 'schedule-open-block': return openProgram(value, 0, trigger);
+      case 'schedule-save-week':
+        change({ action: 'blockWeek', id: program.dataset.blockId, date: program.dataset.weekStart, kind: get('schedule-week-kind'), notes: get('schedule-week-notes') });
+        return openProgram(program.dataset.blockId, Number(value), trigger);
+      case 'schedule-add-block-session': {
+        const date = get('schedule-program-date');
+        const { blockId, weekStart, weekEnd } = program.dataset;
+        if (date < weekStart || date > weekEnd) throw new Error('Choose a date within this program week.');
+        const kind = get('schedule-week-kind');
+        const notes = get('schedule-week-notes');
+        change({ action: 'blockSession', id: blockId, date, versionID: get('schedule-program-version') });
+        render();
+        openProgram(blockId, Number(value), trigger);
+        dialog.querySelector('#schedule-week-kind').value = kind;
+        dialog.querySelector('#schedule-week-notes').value = notes;
+        return;
+      }
+      case 'schedule-move': {
+        const entry = scheduledFor(sourceDate).find(item => item.key === value);
+        return showDialog('schedule-move', 'Move scheduled session', renderMove(entry, today()), focus);
+      }
+      case 'schedule-save-move':
+        change({ action: 'move', key: value, date: sourceDate, destination: get('schedule-move-date') });
+        return saved('Session rescheduled.');
+      case 'schedule-skip': {
+        const entry = scheduledFor(sourceDate).find(item => item.key === value);
+        const hint = entry.rotationID ? 'This advances the rotation by one step.' : 'This marks the planned session as skipped.';
+        return showDialog('schedule-skip', 'Skip scheduled session?', `<div class="stack" data-schedule-date="${sourceDate}"><p>${hint}</p>
+          <button type="button" class="primary" data-action="schedule-confirm-skip" data-value="${escapeHTML(value)}">Confirm skip</button>
+          <p id="schedule-error" class="entry-error" role="alert"></p></div>`, focus);
+      }
+      case 'schedule-confirm-skip':
+        change({ action: 'skip', key: value, date: sourceDate });
+        return saved('Session skipped.');
+      case 'schedule-readiness':
+        return showDialog('schedule-readiness', 'Readiness · ' + shortDate(state.date),
+          renderReadiness(state.date, state.planRecords.readiness?.find(item => item.date === state.date)), focus);
+      case 'schedule-save-readiness':
+        change({ action: 'readiness', date: value, ...Object.fromEntries(Object.keys(readinessFields).map(key => [key, Number(get('readiness-' + key))])) });
+        return saved('Readiness check-in saved.');
+    }
+    if (action.startsWith('schedule-step-')) {
+      dialog.querySelector('#schedule-sequence').innerHTML = rotationSteps(state.planRecords, rotationDraft);
+      dialog.querySelector('#schedule-error').textContent = '';
+    }
+  } catch (error) {
+    const inline = dialog.querySelector('#schedule-error');
+    if (inline) { inline.textContent = error.message; inline.scrollIntoView({ block: 'nearest' }); }
+    else planError(error, focus);
+  }
+}
+
 function showExerciseEditor(source, editing, trigger) {
   const draft = editing ? source : { ...source, id: crypto.randomUUID(), name: source ? `${source.name} variation` : '' };
   exerciseDraft = { draft, editing };
@@ -454,6 +621,8 @@ function paintWorkoutRow(node, session) {
 
 setInterval(paintWorkoutClocks, 250);
 document.addEventListener('visibilitychange', paintWorkoutClocks);
+setInterval(refreshLocalCalendar, 60_000);
+document.addEventListener('visibilitychange', refreshLocalCalendar);
 
 function refreshWorkout() {
   const previous = dialog.querySelector('.workout-editor');
@@ -549,7 +718,7 @@ function handleLogAction(action, value, target, focus) {
       }
       case 'log-start-empty':
       case 'log-start-scheduled':
-        if (!session) state.planRecords = action === 'log-start-empty' ? routineStore.startEmpty() : routineStore.startScheduled(value);
+        if (!session) state.planRecords = action === 'log-start-empty' ? routineStore.startEmpty() : routineStore.startScheduled(value, target.closest('[data-schedule-date]')?.dataset.scheduleDate);
         render();
         return showSession('.active-bar');
       case 'log-save-schedule':
@@ -904,12 +1073,17 @@ document.addEventListener('click', event => {
     handleLogAction(action, value, target, focus);
     return;
   }
+  if (action.startsWith('schedule-')) {
+    handleScheduleAction(action, value, target, focus);
+    return;
+  }
   switch (action) {
     case 'theme': state.appearance = theme() === 'dark' ? 'light' : 'dark'; savePreferences(); render({ focus }); break;
     case 'appearance': state.appearance = value; savePreferences(); render({ focus }); break;
     case 'transparency': state.opaque = !state.opaque; savePreferences(); render({ focus }); break;
     case 'unit': state.unit = value; savePreferences(); render({ focus }); break;
     case 'date': state.date = value; render({ focus }); break;
+    case 'muscle-context': state.muscleView = value; render({ focus }); break;
     case 'exercise-library':
       selectTab('routines');
       state.libraryOpen = true;
@@ -940,6 +1114,7 @@ document.addEventListener('click', event => {
     case 'sample-mode':
       state.sampleMode = !state.sampleMode;
       state.date = today();
+      state.calendarAnchor = null;
       state.routine = null;
       state.builder = null;
       state.history = 'progress';
@@ -977,13 +1152,20 @@ document.addEventListener('click', event => {
 
 dialog.addEventListener('close', () => {
   const trigger = dialogTrigger;
+  const wasWorkout = dialogAction === 'personal-workout';
   dialogAction = null;
   dialogTrigger = null;
   exerciseDraft = null;
+  if (wasWorkout && activePersonal() && state.tab === 'today') render();
   if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
 });
 dialog.addEventListener('change', event => {
   const field = event.target;
+  if (dialogAction === 'schedule-program' && field.id === 'schedule-block-week') {
+    openProgram(field.closest('.schedule-program').dataset.blockId, Number(field.value), dialogTrigger);
+    dialog.querySelector('#schedule-block-week').focus();
+    return;
+  }
   if (dialogAction === 'personal-workout' && field.hasAttribute('data-log-rest-edit')) {
     try { applyLoggerChange({ action: 'editRest', setID: field.closest('[data-log-set]').dataset.logSet, value: field.value }); }
     catch (error) { planError(error); }

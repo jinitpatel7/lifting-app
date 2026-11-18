@@ -46,7 +46,7 @@ struct Mass: Codable, Hashable {
 struct WorkoutDate: Codable, Hashable, Comparable {
     let key: String
 
-    private static let format = Date.ISO8601FormatStyle(timeZone: .gmt)
+    static let format = Date.ISO8601FormatStyle(timeZone: .gmt)
         .year().month().day().dateSeparator(.dash)
 
     init?(_ key: String) {
@@ -291,10 +291,14 @@ struct WorkoutSession: Codable, Equatable, Identifiable {
 
 struct ScheduledWorkout: Codable, Equatable, Identifiable {
     var id = UUID()
-    let localDate: WorkoutDate
+    var localDate: WorkoutDate
     let routineVersionID: UUID
     var programBlockID: UUID? = nil
     var createdAt = Date()
+    var sourceKey: String? = nil
+    var rotationID: UUID? = nil
+    var movedFrom: [WorkoutDate]? = nil
+    var skippedOn: WorkoutDate? = nil
 }
 
 struct ProgramBlock: Codable, Equatable, Identifiable {
@@ -303,6 +307,7 @@ struct ProgramBlock: Codable, Equatable, Identifiable {
     let firstDay: WorkoutDate
     let lastDay: WorkoutDate
     var createdAt = Date()
+    var weeks: [Int: ProgramWeek]? = nil
 }
 
 struct BodyweightEntry: Codable, Equatable, Identifiable {
@@ -320,6 +325,8 @@ struct ReadinessCheckIn: Codable, Equatable, Identifiable {
     let soreness: Int
     var sleepMinutes: Int? = nil
     var recordedAt = Date()
+    var sleepQuality: Int? = nil
+    var motivation: Int? = nil
 }
 
 enum PhotoLocation: Codable, Equatable {

@@ -5,7 +5,11 @@ const preferencesKey = 'setline-preferences-v1';
 
 export const kilogramsPerPound = 0.45359237;
 
-export function localDayKey(date = new Date()) {
+export function localDayKey(date = new Date(), timeZone) {
+  if (timeZone) {
+    const parts = new Intl.DateTimeFormat('en', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+    return ['year', 'month', 'day'].map(key => parts.find(part => part.type === key).value).join('-');
+  }
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${date.getFullYear()}-${month}-${day}`;
@@ -77,7 +81,7 @@ export function createBrowserStore(storage) {
 function validWeight(kilograms) { return Number.isFinite(kilograms) && kilograms > 0; }
 function isRecord(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 
-function isDay(key) {
+export function isDay(key) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
   const date = new Date(`${key}T12:00:00Z`);
   return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === key;

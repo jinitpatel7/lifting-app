@@ -14,6 +14,9 @@ struct TrainingRecords: Codable, Equatable {
     var predictions: [FuturePrediction] = []
     var exercisePreferences: [String: ExercisePreference]? = nil
     var routineCategories: [RoutineCategory]? = nil
+    var scheduleSettings: ScheduleSettings? = nil
+    var weekdayRules: [WeekdayAssignment]? = nil
+    var rotations: [RoutineRotation]? = nil
 
     var activeSession: WorkoutSession? { sessions.first { $0.completedAt == nil } }
     var currentRoutines: [RoutineVersion] {
@@ -298,9 +301,10 @@ final class TrainingRepository {
             throw TrainingDataError.unknownRecord("Choose a saved routine version for the session.")
         }
         if let scheduleID {
-            guard records.schedule.contains(where: { $0.id == scheduleID && $0.routineVersionID == versionID }) else {
+            guard let entry = records.schedule.first(where: { $0.id == scheduleID && $0.routineVersionID == versionID }) else {
                 throw TrainingDataError.unknownRecord("The scheduled workout must refer to this routine version.")
             }
+            return try startScheduled(entry.id.uuidString, on: entry.localDate, at: date, timeZone: timeZone)
         }
         let session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone),
                                      timeZoneIdentifier: timeZone.identifier, startedAt: date,
@@ -433,8 +437,9 @@ final class TrainingRepository {
     }
 
     func addReadinessCheckIn(_ checkIn: ReadinessCheckIn) throws {
-        guard (1...5).contains(checkIn.energy), (1...5).contains(checkIn.soreness), (checkIn.sleepMinutes ?? 0) >= 0 else {
-            throw TrainingDataError.invalidRecord("Energy and soreness use a scale from 1 to 5, and sleep is measured in minutes.")
+        let ratings = [checkIn.energy, checkIn.soreness] + [checkIn.sleepQuality, checkIn.motivation].compactMap { $0 }
+        guard ratings.allSatisfy({ (1...5).contains($0) }), (checkIn.sleepMinutes ?? 0) >= 0 else {
+            throw TrainingDataError.invalidRecord("Use ratings from 1 to 5 and nonnegative sleep minutes.")
         }
         try insert(checkIn, at: \.readiness)
     }
@@ -496,7 +501,7 @@ final class TrainingRepository {
         try commit { $0[keyPath: path].append(record) }
     }
 
-    private func commit(_ update: (inout TrainingRecords) -> Void) throws {
+    func commit(_ update: (inout TrainingRecords) -> Void) throws {
         var next = records
         update(&next)
         try files.saveUserData(next)

@@ -1,5 +1,6 @@
-import { kilogramsPerPound, localDayKey } from './storage.js';
+import { isDay, kilogramsPerPound, localDayKey } from './storage.js';
 import { applyWorkoutChange, reconcileLog, repeatLog, routineFromLog, sessionPlan, variantKey, workoutLog } from './workout-log.js';
+import { applyScheduleChange, scheduleEntry, scheduleVersion } from './schedule.js';
 export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
@@ -13,8 +14,9 @@ export const blankSet = () => ({ id: uuid(), sets: '1', minimum: '', maximum: ''
   structure: 'straight', amrap: false, effort: 'none', effortValue: '' });
 
 export function draftExercise(exercise) {
-  const { id, name, equipment = null, variation = '' } = exercise;
-  return { id: uuid(), exercise: { id, name, equipment, variation }, equipmentLabel: '', basis: 'total', counting: 'total',
+  const { id, name, equipment = null, variation = '', primary, secondary } = exercise;
+  const muscles = primary || secondary ? { primary: [...primary ?? []], secondary: [...secondary ?? []] } : {};
+  return { id: uuid(), exercise: { id, name, equipment, variation, ...muscles }, equipmentLabel: '', basis: 'total', counting: 'total',
     measurement: equipment ? 'weight' : 'bodyweight', warm: [], work: [blankSet()] };
 }
 
@@ -129,10 +131,11 @@ export function reorder(items, fromID, toID) {
 export function createRoutineStore(storage) {
   function load() {
     const raw = storage.getItem(storageKey);
-    if (raw === null) return { categories: [], routines: [], sessions: [], schedule: [] };
+    const empty = { categories: [], routines: [], sessions: [], schedule: [], weekdayRules: [], rotations: [], programBlocks: [], readiness: [] };
+    if (raw === null) return empty;
     const data = JSON.parse(raw);
     if (![data?.categories, data?.routines, data?.sessions].every(Array.isArray)) throw new Error('Routine storage could not be read.');
-    return { ...data, schedule: data.schedule ?? [] };
+    return { ...empty, ...data, schedule: data.schedule ?? [] };
   }
 
   function save(change) {
@@ -142,11 +145,11 @@ export function createRoutineStore(storage) {
     return data;
   }
 
-  function addSession(data, snapshot, referenceID = null, scheduleID = null, source = null) {
+  function addSession(data, snapshot, referenceID = null, scheduleID = null, source = null, now = new Date()) {
     if (data.sessions.some(session => !session.completedAt)) throw new Error('Finish the active workout before starting another.');
-    const now = new Date();
     const session = { id: uuid(), snapshot, override: null, referenceID, scheduleID, startedAt: now.toISOString(),
-      localDate: localDayKey(now), completedAt: null, results: [], routineBaseID: source?.routineBaseID ?? snapshot.id };
+      localDate: localDayKey(now), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, completedAt: null,
+      results: [], routineBaseID: source?.routineBaseID ?? snapshot.id };
     session.log = source ? repeatLog(workoutLog(source)) : workoutLog(session);
     data.sessions.push(session);
   }
@@ -213,17 +216,22 @@ export function createRoutineStore(storage) {
     schedule(routineID, date) {
       return save(data => {
         const routine = data.routines.find(item => item.id === routineID);
-        if (!routine || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))) throw new Error('Choose a workout date.');
+        if (!routine || !isDay(date)) throw new Error('Choose a workout date.');
         if (data.schedule.some(item => item.date === date && item.versionID === newest(routine).id)) return;
         data.schedule.push({ id: uuid(), date, versionID: newest(routine).id });
       });
     },
-    startScheduled(id) {
+    changeSchedule(change, today) {
+      return save(data => applyScheduleChange(data, change, today));
+    },
+    startScheduled(id, date, now = new Date()) {
       return save(data => {
-        const entry = data.schedule.find(item => item.id === id);
-        const version = data.routines.flatMap(routine => routine.versions).find(item => item.id === entry?.versionID);
+        const today = localDayKey(now);
+        const entry = scheduleEntry(data, id, date ?? data.schedule.find(item => item.id === id)?.date, today);
+        if (entry.rotationID && entry.date !== today) throw new Error('Start the rotation on its scheduled date, or move it to today.');
+        const version = scheduleVersion(data, entry.versionID);
         if (!version) throw new Error('Scheduled routine not found.');
-        addSession(data, version, null, id);
+        addSession(data, version, null, entry.id, null, now);
       });
     },
     repeat(sessionID) {
@@ -271,11 +279,12 @@ export function createRoutineStore(storage) {
         session.routineBaseID = version.id;
       });
     },
-    finish(sessionID, early = false) {
+    finish(sessionID, early = false, now = new Date()) {
       return save(data => {
         const session = active(data, sessionID);
         session.endedEarly = early || session.log?.exercises.some(exercise => exercise.sets.some(set => set.status === 'pending')) || false;
-        session.completedAt = new Date().toISOString();
+        session.completedAt = now.toISOString();
+        session.finishedLocalDate = localDayKey(now, session.timeZone);
         if (session.log) Object.assign(session.log, { undo: null, rest: null });
       });
     },

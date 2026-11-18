@@ -49,6 +49,8 @@ private struct MuscleShape: Shape {
 struct InteractiveMuscleMap: View {
     let involvement: MuscleInvolvement
     var browse: ((MuscleGroup) -> Void)? = nil
+    var recent: [MuscleGroup: MuscleTrainingDate]? = nil
+    var asOf: WorkoutDate? = nil
     @State private var selection: MuscleGroup?
 
     private let primary = Color(hex: 0x7548ED)
@@ -70,16 +72,28 @@ struct InteractiveMuscleMap: View {
                 .frame(maxWidth: 340)
                 .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
-                HStack(alignment: .top, spacing: 14) {
-                    key("Primary", tint: primary, groups: involvement.primary)
-                    key("Secondary", tint: secondary, groups: involvement.secondary)
-                }
-                if involvement.isEmpty {
-                    Text("No planned muscle targets").font(.caption).foregroundStyle(Palette.muted)
+                if recent != nil {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110))], alignment: .leading) {
+                        key("0–2 days", tint: primary, groups: [])
+                        key("3–6 days", tint: secondary, groups: [])
+                        key("7+ days", tint: olderTraining, groups: [])
+                        key("No logged sets", tint: neutral, groups: [])
+                    }
+                    Text("Days since last logged session" + (asOf.map { " · As of " + $0.key } ?? ""))
+                        .font(.caption).foregroundStyle(Palette.muted)
+                } else {
+                    HStack(alignment: .top, spacing: 14) {
+                        key("Primary", tint: primary, groups: involvement.primary)
+                        key("Secondary", tint: secondary, groups: involvement.secondary)
+                    }
+                    if involvement.isEmpty {
+                        Text("No planned muscle targets").font(.caption).foregroundStyle(Palette.muted)
+                    }
                 }
                 Menu {
                     ForEach(MuscleGroup.allCases) { muscle in
-                        Button(anatomy.regions[muscle.rawValue]?.name ?? muscle.label) { selection = muscle }
+                        let name = anatomy.regions[muscle.rawValue]?.name ?? muscle.label
+                        Button(recent == nil ? name : name + " · " + trainingAge(muscle)) { selection = muscle }
                     }
                 } label: {
                     Label("Select muscle region", systemImage: "scope")
@@ -91,8 +105,13 @@ struct InteractiveMuscleMap: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(region.name).font(.headline)
                         Text(region.muscles.joined(separator: " · ")).font(.subheadline).foregroundStyle(Palette.muted)
-                        if involvement.primary.contains(selection) { Text("Primary involvement").font(.caption.weight(.bold)) }
-                        if involvement.secondary.contains(selection) { Text("Secondary involvement").font(.caption.weight(.bold)) }
+                        if recent != nil {
+                            let date = recent?[selection]?.date.key
+                            Text(trainingAge(selection) + (date.map { " · " + $0 } ?? "")).font(.caption.weight(.bold))
+                        } else {
+                            if involvement.primary.contains(selection) { Text("Primary involvement").font(.caption.weight(.bold)) }
+                            if involvement.secondary.contains(selection) { Text("Secondary involvement").font(.caption.weight(.bold)) }
+                        }
                         if let browse {
                             Button("Browse \(region.name.lowercased()) exercises") { browse(selection) }
                                 .buttonStyle(SecondaryButton())
@@ -134,9 +153,21 @@ struct InteractiveMuscleMap: View {
     }
 
     private func fill(_ muscle: MuscleGroup) -> Color {
+        if let recent {
+            guard let days = recent[muscle]?.days else { return neutral }
+            return days <= 2 ? primary : days <= 6 ? secondary : olderTraining
+        }
         if involvement.primary.contains(muscle) { return primary }
         if involvement.secondary.contains(muscle) { return secondary }
         return neutral
+    }
+
+    private var olderTraining: Color { Color(hex: 0x8B7BA7) }
+
+    private func trainingAge(_ muscle: MuscleGroup) -> String {
+        guard let days = recent?[muscle]?.days else { return "No logged sets" }
+        if days == 0 { return "Last logged this day" }
+        return "\(days) " + (days == 1 ? "day" : "days") + " since last logged session"
     }
 
     private func key(_ title: String, tint: Color, groups: Set<MuscleGroup>) -> some View {

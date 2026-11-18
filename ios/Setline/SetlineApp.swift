@@ -34,6 +34,7 @@ private enum MainTab: String, CaseIterable, Identifiable {
 private enum ActiveSheet: Identifiable {
     case bodyweight(String), workout, exerciseLibrary(MuscleGroup?)
     case routineEditor(RoutineVersion?), routineHistory(UUID), schedule(RoutineVersion)
+    case schedulePlanner, moveScheduled(ScheduleOccurrence), readiness(WorkoutDate)
 
     var id: String {
         switch self {
@@ -43,6 +44,9 @@ private enum ActiveSheet: Identifiable {
         case .routineEditor(let version): "routine-\(version?.id.uuidString ?? "new")"
         case .routineHistory(let id): "versions-\(id.uuidString)"
         case .schedule(let version): "schedule-\(version.id.uuidString)"
+        case .schedulePlanner: "schedule-planner"
+        case .moveScheduled(let slot): "move-\(slot.id)"
+        case .readiness(let day): "readiness-\(day.key)"
         }
     }
 }
@@ -97,6 +101,12 @@ struct SetlineRoot: View {
                 RoutineHistorySheet(versions: model.records.versions(for: id), categories: model.records.routineCategories ?? [], unit: unit)
             case .schedule(let version):
                 ScheduleWorkoutSheet(model: model, version: version)
+            case .schedulePlanner:
+                TrainingScheduleSheet(model: model)
+            case .moveScheduled(let slot):
+                ScheduleMoveSheet(model: model, slot: slot)
+            case .readiness(let day):
+                ReadinessSheet(model: model, day: day)
             }
         }
         .alert("Local storage", isPresented: Binding(
@@ -117,8 +127,9 @@ struct SetlineRoot: View {
                             start: start, editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
             } else {
                 PersonalTodayScreen(records: model.records, unit: unit, browse: { tab = .routines },
-                                    start: startSession, startEmpty: { if model.startEmptyWorkout() { sheet = .workout } },
-                                    editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
+                                    start: startScheduled, startEmpty: { if model.startEmptyWorkout() { sheet = .workout } },
+                                    editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, openSchedule: { sheet = .schedulePlanner },
+                                    move: { sheet = .moveScheduled($0) }, skip: skipScheduled, logReadiness: { sheet = .readiness($0) }, selectedDay: $day)
             }
         case .routines:
             if showsSample, let sample = model.sample {
@@ -276,6 +287,16 @@ struct SetlineRoot: View {
 
     private func startSession(_ versionID: UUID, _ scheduleID: UUID?) {
         if model.startSession(versionID: versionID, scheduleID: scheduleID) { sheet = .workout }
+    }
+
+    private func startScheduled(_ slot: ScheduleOccurrence) {
+        if model.records.activeSession != nil || model.updateUserData({ _ = try $0.startScheduled(slot.id, on: slot.date) }) {
+            sheet = .workout
+        }
+    }
+
+    private func skipScheduled(_ slot: ScheduleOccurrence) {
+        _ = model.updateUserData { try $0.skipSchedule(slot.id, on: slot.date, today: WorkoutDate(Date())) }
     }
 
     private func repeatWorkout(_ id: UUID) {

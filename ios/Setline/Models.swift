@@ -229,7 +229,7 @@ final class TrainingModel {
         updateUserData { try $0.editSessionPlan(id, name: name, exercises: exercises, groups: groups) }
     }
 
-    private func updateUserData(_ update: (TrainingRepository) throws -> Void) -> Bool {
+    func updateUserData(_ update: (TrainingRepository) throws -> Void) -> Bool {
         guard let repository else {
             storageError = userLoadError
             return false

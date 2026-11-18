@@ -10,6 +10,10 @@ Schedule a saved routine from **Routines** and start it on **Today**, or choose 
 
 Use the bottom workout controls to jump to or complete the next set, pause the session, and manage rest. Turn on **Track actual rest** to save measured intervals. Open **Plate calculator** or **Equipment increment** on a pending set to configure the equipment available for load shortcuts. For per-side prescriptions, **Log left and right** opens separate result fields.
 
+Open **Today → Training schedule** to set your week start, switch to a rolling seven-day view, assign weekdays, set a rotation, or build a program block. Mark each program week and assign the versions containing your targets. Use **Move session** or **Skip session** on the calendar. A rotation advances when you finish its session with recorded sets or explicitly skip it. A missed day holds your place.
+
+Use **Readiness** for an optional daily check-in and **Recent training** on the muscle map to see when each muscle last had logged work.
+
 ## Open the preview
 
 Run `npm run dev` from this folder. The Node.js preview stores routines, workout plans, weights, and preferences in the browser and includes the separate sample mode. [Open the local preview](http://127.0.0.1:4173/)

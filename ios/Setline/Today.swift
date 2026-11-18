@@ -48,16 +48,18 @@ struct WeekScheduleCard: View {
         var id: String { date }
         let date: String
         let routineName: String?
+        var statuses: [ScheduleStatus] = []
     }
 
     let days: [Day]
     let selection: String
+    var title = "This week"
     let select: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                CardHeading(title: "This week")
+                CardHeading(title: title)
                 Spacer()
                 if let first = days.first, let last = days.last {
                     let start = SampleDate.label(first.date, .dateTime.month(.abbreviated).day())
@@ -85,8 +87,18 @@ struct WeekScheduleCard: View {
                         Text(SampleDate.label(entry.date, .dateTime.weekday(.abbreviated)))
                             .font(.caption2.weight(.semibold))
                         Text(SampleDate.label(entry.date, .dateTime.day())).font(.subheadline.weight(.bold))
-                        Circle().fill(entry.routineName == nil ? .clear : selected ? .white : Palette.purple)
-                            .frame(width: 4, height: 4)
+                        if entry.statuses.isEmpty {
+                            Circle().fill(entry.routineName == nil ? .clear : selected ? .white : Palette.purple)
+                                .frame(width: 4, height: 4)
+                        } else {
+                            HStack(spacing: 2) {
+                                ForEach(0..<min(3, entry.statuses.count), id: \.self) { index in
+                                    let status = entry.statuses[index]
+                                    Image(systemName: status.symbol).font(.system(size: 7, weight: .bold))
+                                        .foregroundStyle(selected ? .white : status.tint)
+                                }
+                            }
+                        }
                     }
                     .padding(.vertical, 7)
                     .frame(minWidth: 44, maxWidth: .infinity, minHeight: 54)
