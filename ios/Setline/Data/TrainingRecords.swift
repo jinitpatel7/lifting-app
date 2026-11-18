@@ -209,7 +209,7 @@ struct RepRange: Codable, Equatable {
 }
 
 struct SetPrescription: Codable, Equatable {
-    let sets: Int
+    var sets: Int
     var reps: RepRange? = nil
     var target: SetAmount? = nil
     var repsInReserve: Int? = nil
@@ -218,10 +218,10 @@ struct SetPrescription: Codable, Equatable {
     var amrap: Bool? = nil
     var effort: EffortTarget? = nil
 
-    func isValid(for measurement: Measurement) -> Bool {
+    func isValid(for measurement: Measurement, allowsUntargetedReps: Bool = false) -> Bool {
         sets > 0 && (repsInReserve ?? 0) >= 0 && (restSeconds ?? 0) >= 0
             && (effort?.isValid ?? true) && (effort == nil || repsInReserve == nil)
-            && (measurement.repCounting == nil ? reps == nil && amrap != true : (reps?.isValid ?? (amrap == true)))
+            && (measurement.repCounting == nil ? reps == nil && amrap != true : (reps?.isValid ?? (amrap == true || allowsUntargetedReps)))
             && (target == nil || measurement.accepts(target))
     }
 }
@@ -257,7 +257,7 @@ struct RoutineVersion: Codable, Equatable, Identifiable {
 struct PerformedSet: Codable, Equatable, Identifiable {
     var id = UUID()
     let plannedExerciseID: UUID
-    let order: Int
+    var order: Int
     var repetitions: Repetitions? = nil
     var amount: SetAmount? = nil
     var recordedAt = Date()
@@ -265,6 +265,8 @@ struct PerformedSet: Codable, Equatable, Identifiable {
     var purpose: SetPurpose? = nil
     var structure: SetStructure? = nil
     var amrap: Bool? = nil
+    var actualRIR: Int? = nil
+    var actualRPE: Double? = nil
 }
 
 struct WorkoutSession: Codable, Equatable, Identifiable {
@@ -278,6 +280,9 @@ struct WorkoutSession: Codable, Equatable, Identifiable {
     var performedSets: [PerformedSet] = []
     var sessionPlan: RoutineVersion? = nil
     var referenceSessionID: UUID? = nil
+    var workoutLog: WorkoutLog? = nil
+    var endedEarly: Bool? = nil
+    var routineUpdateBaseID: UUID? = nil
 
     var plan: RoutineVersion { sessionPlan ?? routineSnapshot }
 }

@@ -239,7 +239,7 @@ final class TrainingRepository {
         return copy
     }
 
-    private func snapshots(for exercises: [PlannedExercise], prior: [PlannedExercise] = []) throws -> [PlannedExercise] {
+    private func snapshots(for exercises: [PlannedExercise], prior: [PlannedExercise] = [], allowsUntargetedReps: Bool = false) throws -> [PlannedExercise] {
         guard !exercises.isEmpty, Set(exercises.map(\.id)).count == exercises.count else {
             throw TrainingDataError.invalidRecord("A routine needs at least one exercise and distinct prescription IDs.")
         }
@@ -250,7 +250,9 @@ final class TrainingRepository {
                   existing != nil || (variant.equipment.map(records.equipment.contains) ?? true) else {
                 throw TrainingDataError.unknownRecord("Register the exercise and equipment before using them in a routine.")
             }
-            guard variant.measurement.supports(variant.equipment), entry.allPrescriptions.allSatisfy({ $0.isValid(for: variant.measurement) }) else {
+            guard variant.measurement.supports(variant.equipment), entry.allPrescriptions.allSatisfy({
+                $0.isValid(for: variant.measurement, allowsUntargetedReps: allowsUntargetedReps)
+            }) else {
                 throw TrainingDataError.invalidRecord("The prescription and measurement must match the equipment and rep convention.")
             }
             return PlannedExercise(id: entry.id, variant: existing?.variant ?? ExerciseVariant(exercise: exercise,
@@ -319,13 +321,28 @@ final class TrainingRepository {
         guard !session.performedSets.contains(where: {
             $0.id != set.id && $0.plannedExerciseID == set.plannedExerciseID && $0.order == set.order
         }) else { throw TrainingDataError.conflictingRecord("A set already occupies this position for the exercise.") }
-        try commit { next in
-            if let existing = session.performedSets.firstIndex(where: { $0.id == set.id }) {
-                next.sessions[index].performedSets[existing] = set
-            } else {
-                next.sessions[index].performedSets.append(set)
-            }
+        if let previous = session.performedSets.first(where: { $0.id == set.id }), previous.plannedExerciseID != set.plannedExerciseID {
+            throw TrainingDataError.conflictingRecord("A completed set belongs to its original exercise.")
         }
+        var updated = session
+        if let existing = session.performedSets.firstIndex(where: { $0.id == set.id }) {
+            updated.performedSets[existing] = set
+        } else {
+            updated.performedSets.append(set)
+        }
+        if var log = updated.workoutLog,
+           let exercise = log.exercises.firstIndex(where: { $0.id == set.plannedExerciseID }) {
+            let slot = log.exercises[exercise].rows.firstIndex(where: { $0.id == set.id }) ?? set.order - 1
+            if log.exercises[exercise].rows.indices.contains(slot) {
+                log.exercises[exercise].rows[slot].id = set.id
+                log.exercises[exercise].rows[slot].status = .completed
+            } else {
+                log.exercises[exercise].rows.append(WorkoutSetRow(id: set.id, purpose: set.purpose ?? .working, status: .completed))
+            }
+            updated.workoutLog = log
+            synchronizeResults(in: &updated)
+        }
+        try commit { $0.sessions[index] = updated }
     }
 
     @discardableResult
@@ -334,7 +351,8 @@ final class TrainingRepository {
         let source = records.sessions[try sessionIndex(sourceID)]
         guard source.completedAt != nil else { throw TrainingDataError.invalidRecord("Choose a completed workout to repeat.") }
         let session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone), timeZoneIdentifier: timeZone.identifier,
-                                     startedAt: date, scheduleID: nil, routineSnapshot: source.plan, referenceSessionID: source.id)
+                                     startedAt: date, scheduleID: nil, routineSnapshot: source.plan, referenceSessionID: source.id,
+                                     workoutLog: source.workoutLog?.repeated(), routineUpdateBaseID: source.routineUpdateBaseID)
         try commit { $0.sessions.append(session) }
         return session
     }
@@ -345,7 +363,7 @@ final class TrainingRepository {
         let session = records.sessions[index]
         guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
         let prior = session.plan
-        let snapshots = try snapshots(for: exercises, prior: prior.exercises)
+        let snapshots = try snapshots(for: exercises, prior: prior.exercises, allowsUntargetedReps: true)
         let normalized = try RoutineGroup.normalized(groups, exercises: snapshots)
         for slot in Set(session.performedSets.map(\.plannedExerciseID)) {
             let previous = prior.exercises.first { $0.id == slot }
@@ -357,17 +375,45 @@ final class TrainingRepository {
         let plan = RoutineVersion(id: prior.id, routineID: prior.routineID, revision: prior.revision,
                                   createdAt: prior.createdAt, name: name, exercises: snapshots,
                                   categoryID: prior.categoryID, groups: normalized.isEmpty ? nil : normalized)
-        try commit { $0.sessions[index].sessionPlan = plan == session.routineSnapshot ? nil : plan }
+        var updated = session
+        updated.sessionPlan = plan == session.routineSnapshot ? nil : plan
+        if let log = session.workoutLog {
+            let exercises = try snapshots.map { entry in
+                guard var existing = log.exercises.first(where: { $0.id == entry.id }) else { return try WorkoutExerciseLog(entry: entry) }
+                let old = prior.exercises.first { $0.id == entry.id }
+                if old?.variant.key != entry.variant.key {
+                    let replacement = try WorkoutExerciseLog(entry: entry)
+                    existing.rows = replacement.rows
+                } else if old?.allPrescriptions != entry.allPrescriptions || old?.warmUps != entry.warmUps {
+                    let planned = try WorkoutExerciseLog(entry: entry).rows
+                    var remaining = planned[...]
+                    existing.rows = existing.rows.compactMap { row in
+                        let replacement = remaining.popFirst()
+                        return row.status != .pending || row.input != nil ? row : replacement
+                    } + Array(remaining)
+                }
+                return existing
+            }
+            updated.workoutLog?.exercises = exercises
+            synchronizeResults(in: &updated)
+        }
+        try commit { $0.sessions[index] = updated }
     }
 
-    func finishSession(_ id: UUID, at date: Date = Date()) throws {
+    func finishSession(_ id: UUID, early: Bool = false, at date: Date = Date()) throws {
         let index = try sessionIndex(id)
         let session = records.sessions[index]
         if session.completedAt != nil { return }
         guard date >= session.startedAt, session.performedSets.allSatisfy({ $0.recordedAt <= date }) else {
             throw TrainingDataError.invalidRecord("The finish time must follow the start and all recorded sets.")
         }
-        try commit { $0.sessions[index].completedAt = date }
+        let unfinished = session.workoutLog?.exercises.contains { exercise in
+            exercise.rows.contains { $0.status == .pending }
+        } == true
+        try commit {
+            $0.sessions[index].completedAt = date
+            $0.sessions[index].endedEarly = early || unfinished ? true : nil
+        }
     }
 
     func saveBodyweight(_ mass: Mass, on day: WorkoutDate, at date: Date = Date()) throws {
@@ -451,5 +497,232 @@ final class TrainingRepository {
         update(&next)
         try files.saveUserData(next)
         records = next
+    }
+}
+
+extension TrainingRepository {
+    @discardableResult
+    func startEmptySession(at date: Date = Date(), timeZone: TimeZone = .current) throws -> WorkoutSession {
+        guard records.activeSession == nil else { throw TrainingDataError.activeSessionExists }
+        let plan = RoutineVersion(routineID: UUID(), revision: 0, createdAt: date, name: "Empty workout", exercises: [])
+        var session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone), timeZoneIdentifier: timeZone.identifier,
+                                     startedAt: date, scheduleID: nil, routineSnapshot: plan)
+        session.workoutLog = try WorkoutLog(session: session)
+        try commit { $0.sessions.append(session) }
+        return session
+    }
+
+    func prepareWorkoutLog(_ id: UUID) throws {
+        let index = try sessionIndex(id)
+        let session = records.sessions[index]
+        guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
+        if session.workoutLog != nil { return }
+        let log = try WorkoutLog(session: session)
+        try commit { $0.sessions[index].workoutLog = log }
+    }
+
+    func changeWorkout(_ id: UUID, _ change: WorkoutLogChange, at date: Date = Date()) throws {
+        let index = try sessionIndex(id)
+        var session = records.sessions[index]
+        guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
+        var log = try session.workoutLog ?? WorkoutLog(session: session)
+        let originalPlan = session.plan
+        var exercises = originalPlan.exercises
+        func exerciseIndex(_ id: UUID) throws -> Int {
+            guard let position = log.exercises.firstIndex(where: { $0.id == id }) else {
+                throw TrainingDataError.unknownRecord("This exercise is no longer in the workout.")
+            }
+            return position
+        }
+        func setIndex(_ id: UUID, in position: Int) throws -> Int {
+            guard let row = log.exercises[position].rows.firstIndex(where: { $0.id == id }) else {
+                throw TrainingDataError.unknownRecord("This set is no longer in the workout.")
+            }
+            return row
+        }
+        switch change {
+        case .sessionNotes(let notes): log.notes = notes
+        case .exerciseNotes(let id, let notes):
+            let position = try exerciseIndex(id)
+            log.exercises[position].notes = notes
+        case .addExercise(let selected, let measurement, let equipment):
+            guard let exercise = exercise(selected.id), equipment.map(records.equipment.contains) ?? true,
+                  measurement.supports(equipment) else { throw TrainingDataError.invalidRecord("Choose compatible exercise equipment.") }
+            let entry = PlannedExercise(variant: ExerciseVariant(exercise: exercise, equipment: equipment, measurement: measurement),
+                                        prescription: SetPrescription(sets: 1))
+            exercises.append(entry)
+            var item = try WorkoutExerciseLog(entry: entry)
+            item.rows[0].prescription = nil
+            log.exercises.append(item)
+        case .removeExercise(let id):
+            let position = try exerciseIndex(id)
+            log.exercises.remove(at: position)
+            exercises.removeAll { $0.id == id }
+        case .moveExercise(let id, let direction):
+            guard direction == -1 || direction == 1 else { return }
+            let from = try exerciseIndex(id)
+            let to = from + direction
+            guard log.exercises.indices.contains(to) else { return }
+            log.exercises.swapAt(from, to)
+            let lookup = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
+            exercises = log.exercises.compactMap { lookup[$0.id] }
+        case .queue(let id, let queued):
+            let position = try exerciseIndex(id)
+            log.exercises[position].queued = queued
+            log.exercises[position].queuedAt = queued ? date : nil
+        case .skipExercise(let id), .restoreExercise(let id):
+            let position = try exerciseIndex(id)
+            let skipping: Bool
+            if case .skipExercise = change { skipping = true } else { skipping = false }
+            log.exercises[position].queued = false
+            log.exercises[position].queuedAt = nil
+            for row in log.exercises[position].rows.indices {
+                if log.exercises[position].rows[row].status == (skipping ? .pending : .skipped) {
+                    log.exercises[position].rows[row].status = skipping ? .skipped : .pending
+                }
+            }
+        case .addSet(let id, let purpose):
+            let position = try exerciseIndex(id)
+            log.exercises[position].rows.append(WorkoutSetRow(purpose: purpose))
+        case .removeSet(let id, let row):
+            let position = try exerciseIndex(id)
+            let slot = try setIndex(row, in: position)
+            log.exercises[position].rows.remove(at: slot)
+        case .moveSet(let id, let row, let direction):
+            guard direction == -1 || direction == 1 else { return }
+            let position = try exerciseIndex(id)
+            let from = try setIndex(row, in: position)
+            let to = from + direction
+            guard log.exercises[position].rows.indices.contains(to) else { return }
+            log.exercises[position].rows.swapAt(from, to)
+        case .editSet(let id, let row, let input):
+            let position = try exerciseIndex(id)
+            let slot = try setIndex(row, in: position)
+            guard log.exercises[position].rows[slot].status == .pending else { return }
+            log.exercises[position].rows[slot].input = input
+        case .setSkipped(let id, let row, let skipped):
+            let position = try exerciseIndex(id)
+            let slot = try setIndex(row, in: position)
+            guard log.exercises[position].rows[slot].status != .completed else { return }
+            log.exercises[position].rows[slot].status = skipped ? .skipped : .pending
+        case .undo(let id, let row):
+            let position = try exerciseIndex(id)
+            let slot = try setIndex(row, in: position)
+            guard log.exercises[position].rows[slot].status == .completed else { return }
+            if log.exercises[position].rows[slot].input == nil, let result = session.performedSets.first(where: { $0.id == row }) {
+                log.exercises[position].rows[slot].input = WorkoutSetInput(result: result)
+            }
+            log.exercises[position].rows[slot].status = .pending
+        case .complete(let id, let row, let unit):
+            let position = try exerciseIndex(id)
+            let slot = try setIndex(row, in: position)
+            let set = log.exercises[position].rows[slot]
+            guard set.status == .pending, !log.exercises[position].queued else { return }
+            guard let measurement = exercises.first(where: { $0.id == id })?.variant.measurement else {
+                throw TrainingDataError.unknownRecord("This exercise is no longer in the workout.")
+            }
+            let input = set.input ?? WorkoutSetInput(unit: unit, prescription: set.prescription)
+            let amount = try input.performedAmount(for: measurement)
+            let reps = try input.repetitions(for: measurement)
+            let effort = try input.efforts()
+            guard measurement.accepts(amount), measurement.accepts(reps), date >= session.startedAt else {
+                throw TrainingDataError.invalidRecord("Enter valid performance values before completing this set.")
+            }
+            session.performedSets.append(PerformedSet(id: row, plannedExerciseID: id, order: slot + 1, repetitions: reps,
+                amount: amount, recordedAt: date, effortOutcome: input.failure ? .failure : nil, purpose: set.purpose,
+                structure: set.prescription?.structure, amrap: set.prescription?.amrap, actualRIR: effort.rir, actualRPE: effort.rpe))
+            log.exercises[position].rows[slot].input = input
+            log.exercises[position].rows[slot].status = .completed
+        }
+        if exercises != originalPlan.exercises {
+            let groups = (originalPlan.groups ?? []).compactMap { group in
+                (try? RoutineGroup.normalized([group], exercises: exercises))?.first
+            }
+            session.sessionPlan = RoutineVersion(id: originalPlan.id, routineID: originalPlan.routineID,
+                revision: originalPlan.revision, createdAt: originalPlan.createdAt, name: originalPlan.name,
+                exercises: exercises, categoryID: originalPlan.categoryID, groups: groups.isEmpty ? nil : groups)
+        }
+        session.workoutLog = log
+        synchronizeResults(in: &session)
+        if session != records.sessions[index] { try commit { $0.sessions[index] = session } }
+    }
+
+    @discardableResult
+    func updateRoutineFromWorkout(_ id: UUID, at date: Date = Date()) throws -> RoutineVersion {
+        let sessionPosition = try sessionIndex(id)
+        let session = records.sessions[sessionPosition]
+        guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
+        let plan = session.plan
+        guard let routinePosition = records.routines.firstIndex(where: { $0.id == plan.routineID }),
+              let current = records.version(records.routines[routinePosition].currentVersionID) else {
+            throw TrainingDataError.unknownRecord("This workout has no linked routine.")
+        }
+        guard current.id == (session.routineUpdateBaseID ?? session.routineSnapshot.id) else {
+            throw TrainingDataError.conflictingRecord("A newer routine version exists. Open Routines to edit it directly.")
+        }
+        let log = try session.workoutLog ?? WorkoutLog(session: session)
+        let entries = try plan.exercises.map { entry in
+            let rows = log.exercises.first { $0.id == entry.id }?.rows ?? []
+            let warm = try routineBlocks(rows.filter { $0.purpose == .warmUp }, measurement: entry.variant.measurement)
+            let work = try routineBlocks(rows.filter { $0.purpose == .working }, measurement: entry.variant.measurement)
+            guard let first = work.first else { throw TrainingDataError.invalidRecord("Keep a working set for \(entry.variant.exercise.name) before updating the routine.") }
+            return PlannedExercise(id: entry.id, variant: entry.variant, prescription: first,
+                warmUps: warm.isEmpty ? nil : warm, additionalWorkingSets: work.count > 1 ? Array(work.dropFirst()) : nil)
+        }
+        let snapshots = try snapshots(for: entries)
+        let groups = try RoutineGroup.normalized(plan.groups ?? [], exercises: snapshots)
+        if current.exercises == snapshots, (current.groups ?? []) == groups { return current }
+        let updated = RoutineVersion(routineID: current.routineID, revision: current.revision + 1, createdAt: date,
+            name: current.name, exercises: snapshots, categoryID: current.categoryID, groups: groups.isEmpty ? nil : groups)
+        try commit { records in
+            records.routineVersions.append(updated)
+            records.routines[routinePosition].currentVersionID = updated.id
+            records.sessions[sessionPosition].routineUpdateBaseID = updated.id
+        }
+        return updated
+    }
+
+    private func routineBlocks(_ rows: [WorkoutSetRow], measurement: Measurement) throws -> [SetPrescription] {
+        var blocks: [SetPrescription] = []
+        for row in rows {
+            var prescription = row.prescription ?? SetPrescription(sets: 1)
+            prescription.sets = 1
+            if let input = row.input {
+                let prefill = WorkoutSetInput(unit: input.unit, prescription: row.prescription)
+                if input.amount != prefill.amount, !input.amount.isEmpty { prescription.target = try input.performedAmount(for: measurement) }
+                if input.reps != prefill.reps || input.rightReps != prefill.rightReps {
+                    switch try input.repetitions(for: measurement) {
+                    case .total(let count), .perSide(let count): prescription.reps = RepRange(minimum: count, maximum: count)
+                    case .separateSides(let left, let right): prescription.reps = RepRange(minimum: min(left, right), maximum: max(left, right))
+                    case nil: break
+                    }
+                }
+            }
+            guard prescription.isValid(for: measurement) else {
+                throw TrainingDataError.invalidRecord("Enter valid targets for added sets, or remove them before updating the routine.")
+            }
+            if var previous = blocks.last {
+                let count = previous.sets
+                previous.sets = 1
+                if previous == prescription {
+                    blocks[blocks.count - 1].sets = count + 1
+                    continue
+                }
+            }
+            blocks.append(prescription)
+        }
+        return blocks
+    }
+
+    private func synchronizeResults(in session: inout WorkoutSession) {
+        guard let log = session.workoutLog else { return }
+        let lookup = Dictionary(uniqueKeysWithValues: session.performedSets.map { ($0.id, $0) })
+        session.performedSets = log.exercises.flatMap { exercise in
+            exercise.rows.enumerated().compactMap { index, row -> PerformedSet? in
+                guard row.status == .completed, var result = lookup[row.id] else { return nil }
+                result.order = index + 1
+                return result
+            }
+        }
     }
 }

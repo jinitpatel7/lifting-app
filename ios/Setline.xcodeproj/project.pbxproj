@@ -25,6 +25,8 @@
 		100000000000000000000117 /* MuscleRegions.json in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000218 /* MuscleRegions.json */; };
 		100000000000000000000118 /* RoutinePlanning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000219 /* RoutinePlanning.swift */; };
 		100000000000000000000119 /* RoutineEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* RoutineEditor.swift */; };
+		100000000000000000000120 /* WorkoutLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000221 /* WorkoutLogging.swift */; };
+		100000000000000000000121 /* WorkoutLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000222 /* WorkoutLogger.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +50,8 @@
 		100000000000000000000218 /* MuscleRegions.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = MuscleRegions.json; sourceTree = "<group>"; };
 		100000000000000000000219 /* RoutinePlanning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RoutinePlanning.swift; path = Data/RoutinePlanning.swift; sourceTree = "<group>"; };
 		100000000000000000000220 /* RoutineEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineEditor.swift; sourceTree = "<group>"; };
+		100000000000000000000221 /* WorkoutLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WorkoutLogging.swift; path = Data/WorkoutLogging.swift; sourceTree = "<group>"; };
+		100000000000000000000222 /* WorkoutLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLogger.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +85,8 @@
 				100000000000000000000216 /* MuscleDiagram.swift */,
 				100000000000000000000219 /* RoutinePlanning.swift */,
 				100000000000000000000220 /* RoutineEditor.swift */,
+				100000000000000000000221 /* WorkoutLogging.swift */,
+				100000000000000000000222 /* WorkoutLogger.swift */,
 				100000000000000000000403 /* Resources */,
 			);
 			path = Setline;
@@ -180,6 +186,8 @@
 				100000000000000000000115 /* MuscleDiagram.swift in Sources */,
 				100000000000000000000118 /* RoutinePlanning.swift in Sources */,
 				100000000000000000000119 /* RoutineEditor.swift in Sources */,
+				100000000000000000000120 /* WorkoutLogging.swift in Sources */,
+				100000000000000000000121 /* WorkoutLogger.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -5,6 +5,7 @@ struct PersonalTodayScreen: View {
     let unit: WeightUnit
     let browse: () -> Void
     let start: (UUID, UUID?) -> Void
+    let startEmpty: () -> Void
     let editWeight: (String) -> Void
     let browseMuscle: (MuscleGroup) -> Void
     @Binding var selectedDay: String?
@@ -25,6 +26,8 @@ struct PersonalTodayScreen: View {
                 if planned.isEmpty {
                     PersonalStatus(title: "No workout scheduled", symbol: "calendar") {
                         Button("View routines", action: browse).buttonStyle(SecondaryButton())
+                        Button(records.activeSession == nil ? "Start empty workout" : "Resume workout", action: startEmpty)
+                            .buttonStyle(PrimaryButton())
                     }
                 }
                 ForEach(planned) { workout in
@@ -58,6 +61,7 @@ struct PersonalRoutinesScreen: View {
     let edit: (RoutineVersion?) -> Void
     let duplicate: (UUID) -> Void
     let versionHistory: (UUID) -> Void
+    let schedule: (RoutineVersion) -> Void
     @State private var category: UUID?
 
     var body: some View {
@@ -88,6 +92,7 @@ struct PersonalRoutinesScreen: View {
                     Button("Edit routine") { edit(version) }
                     Button("Duplicate routine") { duplicate(version.id) }
                     Button("Version history") { versionHistory(version.routineID) }
+                    Button("Schedule workout") { schedule(version) }
                 } label: {
                     Label("Routine options", systemImage: "ellipsis.circle").frame(minHeight: 44)
                 }
@@ -171,9 +176,26 @@ struct PersonalHistoryScreen: View {
             }
             ForEach(completed) { session in
                 PersonalStatus(title: session.plan.name, symbol: "dumbbell") {
-                    Text("\(session.localDate.formatted(.dateTime.month(.abbreviated).day())) · \(session.performedSets.count) recorded sets")
+                    Text("\(session.localDate.formatted(.dateTime.month(.abbreviated).day())) · \(session.performedSets.count) recorded sets\(session.endedEarly == true ? " · Ended early" : "")")
                         .font(.caption).foregroundStyle(Palette.muted)
-                    RoutinePlanRows(version: session.plan, unit: unit)
+                    if let log = session.workoutLog {
+                        if !log.notes.isEmpty { Text(log.notes).font(.subheadline) }
+                        ForEach(log.exercises) { workout in
+                            if let entry = session.plan.exercises.first(where: { $0.id == workout.id }) {
+                                Text(entry.variant.exercise.name).font(.subheadline.weight(.semibold))
+                                if !workout.notes.isEmpty { Text(workout.notes).font(.caption).foregroundStyle(Palette.muted) }
+                                ForEach(workout.rows) { row in
+                                    if let result = session.performedSets.first(where: { $0.id == row.id }) {
+                                        Text("Completed · \(result.summary(unit: unit, measurement: entry.variant.measurement))").font(.caption)
+                                    } else {
+                                        Text(row.status == .skipped ? "Skipped" : "Unfinished").font(.caption).foregroundStyle(Palette.muted)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        RoutinePlanRows(version: session.plan, unit: unit)
+                    }
                     Button("Repeat workout") { repeatWorkout(session.id) }.buttonStyle(SecondaryButton())
                         .disabled(hasActiveWorkout)
                 }
@@ -278,7 +300,8 @@ extension PerformedSet {
         case .separateSides(let left, let right): "\(left) left / \(right) right"
         case nil: nil
         }
-        return [load, reps, effortOutcome == .failure ? "To failure" : nil].compactMap { $0 }.joined(separator: " · ")
+        return [load, reps, actualRIR.map { "RIR \($0)" }, actualRPE.map { "RPE \($0.formatted())" },
+                effortOutcome == .failure ? "To failure" : nil].compactMap { $0 }.joined(separator: " · ")
     }
 }
 

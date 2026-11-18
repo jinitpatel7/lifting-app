@@ -3,7 +3,8 @@ import { createExerciseStore, escapeHTML, exerciseEditor, readExerciseForm, rend
   renderSearchResults, renderSubstitutions, renderSubstitutionResults } from './exercises.js';
 import { muscleInvolvement, renderMuscleMap } from './muscle-map.js';
 import { blankSet, createRoutineStore, draftExercise, makeDraft, newGroup, newest, reorder, sessionPlan } from './routines.js';
-import { exerciseOptions, renderCompletedSessions, renderPersonalRoutines, renderRoutineBuilder, renderSession, renderVersions } from './routine-ui.js';
+import { exerciseOptions, renderCompletedSessions, renderPersonalRoutines, renderPlan, renderRoutineBuilder, renderVersions } from './routine-ui.js';
+import { renderLoggedHistory, renderWorkout } from './workout-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -69,7 +70,7 @@ const state = {
   libraryOpen: false, exerciseDetail: null, substituteFor: null, availableEquipment: new Set(),
   exerciseQuery: newExerciseQuery(), exercises: readStorage(exerciseStore.load, { custom: [], preferences: {} }),
   muscleRegion: '',
-  planRecords: readStorage(routineStore.load, { categories: [], routines: [], sessions: [] }),
+  planRecords: readStorage(routineStore.load, { categories: [], routines: [], sessions: [], schedule: [] }),
   builder: null, routineCategory: '',
 };
 
@@ -88,6 +89,8 @@ const libraryItems = () => [...catalog, ...state.exercises.custom];
 const libraryExercise = id => libraryItems().find(exercise => exercise.id === id);
 const personalRoutine = id => state.planRecords.routines.find(routine => routine.id === id);
 const personalSession = id => state.planRecords.sessions.find(session => session.id === id);
+const personalVersion = id => state.planRecords.routines.flatMap(routine => routine.versions).find(version => version.id === id);
+const scheduledFor = date => state.planRecords.schedule.filter(entry => entry.date === date);
 const activePersonal = () => state.sampleMode ? null : state.planRecords.sessions.find(session => !session.completedAt);
 
 function savePreferences() {
@@ -157,11 +160,11 @@ function weekView() {
     return { date: date.toISOString().slice(0, 10) };
   });
   return `<section class="surface week" aria-labelledby="week-title"><div class="section-top"><h2 id="week-title">This week</h2><span class="meta">${icon('calendar', 15)} ${shortDate(week[0].date)} – ${shortDate(week.at(-1).date)}</span></div><div class="days">${week.map(({ date, routineID }) => {
-    const routine = routineFor(routineID);
+    const routine = state.sampleMode ? routineFor(routineID) : personalVersion(scheduledFor(date)[0]?.versionID);
     const selected = date === state.date;
     const isToday = date === today();
     const description = routine?.name ?? (state.sampleMode ? 'rest day' : 'no workout scheduled');
-    return `<button class="day${selected ? ' selected' : ''}" type="button" data-action="date" data-value="${date}" aria-pressed="${selected}" ${isToday ? 'aria-current="date"' : ''} aria-label="${longDate(date)}, ${description}"><span class="day-name">${dateLabel(date, { weekday: 'short' })}</span><span class="day-number">${day(date).getUTCDate()}</span><span class="day-dot${routine ? ' scheduled' : ''}"></span></button>`;
+    return `<button class="day${selected ? ' selected' : ''}" type="button" data-action="date" data-value="${date}" aria-pressed="${selected}" ${isToday ? 'aria-current="date"' : ''} aria-label="${longDate(date)}, ${escapeHTML(description)}"><span class="day-name">${dateLabel(date, { weekday: 'short' })}</span><span class="day-number">${day(date).getUTCDate()}</span><span class="day-dot${routine ? ' scheduled' : ''}"></span></button>`;
   }).join('')}</div></section>`;
 }
 
@@ -253,8 +256,18 @@ function exercises(routine) {
 
 function todayPage() {
   const routine = planned();
-  const side = routine ? muscleMap(routine) + bodyweight() : bodyweight() + muscleMap(null);
-  return `${sectionTitle('Today', longDate(today()))}${weekView()}<div class="dashboard"><div class="dashboard-hero">${workoutHero(routine)}</div><div class="dashboard-side">${side}</div>${routine ? `<div class="dashboard-exercises">${exercises(routine)}</div>` : ''}</div>`;
+  const scheduled = state.sampleMode ? [] : scheduledFor(state.date);
+  const scheduledExercises = scheduled.flatMap(entry => personalVersion(entry.versionID)?.exercises ?? [])
+    .map(entry => libraryExercise(entry.exercise.id)).filter(Boolean);
+  const side = routine ? muscleMap(routine) + bodyweight() : bodyweight() + (scheduledExercises.length
+    ? renderMuscleMap(anatomy, muscleInvolvement(scheduledExercises), state.muscleRegion) : muscleMap(null));
+  const cards = scheduled.map(entry => {
+    const version = personalVersion(entry.versionID);
+    return version ? `<article class="surface settings-card saved-routine"><p class="eyebrow">Scheduled workout</p><h2>${escapeHTML(version.name)}</h2>
+      ${renderPlan(version, state.unit)}<button type="button" class="primary" data-action="log-start-scheduled" data-value="${entry.id}">${activePersonal() ? 'Resume workout' : 'Start scheduled workout'}</button></article>` : '';
+  }).join('');
+  const empty = state.sampleMode ? '' : `<button type="button" class="secondary" data-action="log-start-empty">${activePersonal() ? 'Resume active workout' : 'Start empty workout'}</button>`;
+  return `${sectionTitle('Today', longDate(today()))}${weekView()}<div class="dashboard"><div class="dashboard-hero stack">${cards || workoutHero(routine)}${empty}</div><div class="dashboard-side">${side}</div>${routine ? `<div class="dashboard-exercises">${exercises(routine)}</div>` : ''}</div>`;
 }
 
 function emptyCard(title, copy, symbol) {
@@ -296,7 +309,7 @@ function historyPage() {
   const progress = state.history === 'progress';
   if (!state.sampleMode) {
     if (!progress) return heading + picker + renderCompletedSessions(state.planRecords.sessions, state.unit, activePersonal(),
-      session => shortDate(session.localDate ?? localDayKey(new Date(session.startedAt))));
+      session => shortDate(session.localDate ?? localDayKey(new Date(session.startedAt))), renderLoggedHistory);
     const bodyweight = Object.values(state.user.entries).sort((a, b) => b.day.localeCompare(a.day));
     const entries = bodyweight.length ? `
       <section class="surface settings-card" aria-labelledby="bodyweight-history">
@@ -362,6 +375,7 @@ let exerciseDraft = null;
 function showDialog(type, title, body, trigger) {
   dialogAction = type;
   dialogTrigger = trigger;
+  dialog.classList.toggle('workout-dialog', type === 'personal-workout');
   dialog.innerHTML = `<div class="dialog-header"><h2 id="dialog-title">${title}</h2><button type="button" class="icon-button" data-action="close" aria-label="Close">${icon('close', 20)}</button></div>${body}`;
   if (!dialog.open) dialog.showModal();
   dialog.querySelector('[autofocus]')?.focus();
@@ -381,17 +395,133 @@ function showExerciseEditor(source, editing, trigger) {
 
 function showSession(trigger) {
   const routine = activePreview();
-  const session = activePersonal();
+  let session = activePersonal();
   if (session) {
-    showDialog('personal-workout', escapeHTML(sessionPlan(session).name), renderSession(session, personalSession(session.referenceID), state.unit), trigger);
+    try {
+      if (!session.log) {
+        state.planRecords = routineStore.prepare(session.id);
+        session = activePersonal();
+      }
+      showDialog('personal-workout', escapeHTML(sessionPlan(session).name), workoutMarkup(session), trigger);
+    } catch (error) { planError(error, trigger); }
     return;
   }
   if (!routine) {
     const hint = state.sampleMode ? 'Choose a sample routine to start a workout preview.' : 'Open or create a saved routine to start a workout.';
-    showDialog('idle', 'Workout log', `<p class="dialog-description">${hint}</p><button class="primary" type="button" data-action="choose-routine">Browse routines</button>`, trigger);
+    showDialog('idle', 'Workout log', `<p class="dialog-description">${hint}</p><div class="builder-actions"><button class="primary" type="button" data-action="choose-routine">Browse routines</button>
+      ${state.sampleMode ? '' : '<button class="secondary" type="button" data-action="log-start-empty">Start empty workout</button>'}</div>`, trigger);
     return;
   }
-  showDialog('active', routine.name, `<p class="dialog-description">Active workout preview · Sample routine</p><ul class="active-exercises">${routine.exercises.map(exercise => `<li><strong>${exercise.name}</strong><span>${exercise.sets} × ${exercise.reps} reps</span></li>`).join('')}</ul><p class="dialog-description">Set logging and session history will be available in a later stage.</p><button class="secondary end-button" type="button" data-action="end">End workout preview</button>`, trigger);
+  showDialog('active', routine.name, `<p class="dialog-description">Active workout preview · Sample routine</p><ul class="active-exercises">${routine.exercises.map(exercise => `<li><strong>${exercise.name}</strong><span>${exercise.sets} × ${exercise.reps} reps</span></li>`).join('')}</ul><p class="dialog-description">Switch to personal mode to record a workout.</p><button class="secondary end-button" type="button" data-action="end">End workout preview</button>`, trigger);
+}
+
+function workoutMarkup(session) { return renderWorkout(session, state.planRecords, catalog, state.exercises, state.unit); }
+
+function refreshWorkout() {
+  const previous = dialog.querySelector('.workout-editor');
+  const focusedSet = document.activeElement?.closest('[data-log-set]')?.dataset.logSet;
+  const expanded = new Set([...previous.querySelectorAll('details[open]')].map(item => item.dataset.logDisclosure));
+  const scroll = dialog.scrollTop;
+  const session = activePersonal();
+  previous.outerHTML = workoutMarkup(session);
+  for (const item of dialog.querySelectorAll('details[data-log-disclosure]')) item.open = expanded.has(item.dataset.logDisclosure);
+  dialog.scrollTop = scroll;
+  if (focusedSet) dialog.querySelector(`[data-log-set="${focusedSet}"] > button`)?.focus({ preventScroll: true });
+}
+
+function finishLogger(id, early) {
+  state.planRecords = routineStore.finish(id, early);
+  dialogTrigger = null;
+  dialog.close();
+  render({ focus: '.active-bar' });
+  announce(early ? 'Workout saved as ended early.' : 'Workout finished.');
+}
+
+function confirmLog(message, label, action, value = '') {
+  const target = dialog.querySelector('#log-confirmation');
+  target.innerHTML = `<div class="log-panel"><p>${message}</p><div class="builder-actions">
+    <button type="button" class="primary" data-action="${action}" data-value="${value}">${label}</button>
+    <button type="button" class="secondary" data-action="log-cancel-confirmation">Cancel</button></div></div>`;
+  target.scrollIntoView({ block: 'nearest' });
+  target.querySelector('button').focus({ preventScroll: true });
+}
+
+function confirmEndEarly() {
+  confirmLog('Save completed results and leave pending sets unfinished?', 'End early and save', 'log-confirm-end');
+}
+
+function applyLoggerChange(change, { refresh = true } = {}) {
+  state.planRecords = routineStore.logChange(activePersonal().id, change, state.unit);
+  if (refresh) refreshWorkout();
+}
+
+function handleLogAction(action, value, target, focus) {
+  const session = activePersonal();
+  const exerciseID = target.closest('[data-log-exercise]')?.dataset.logExercise;
+  const exercise = session?.log?.exercises.find(item => item.id === (exerciseID ?? value));
+  const set = exercise?.sets.find(item => item.id === value);
+  const change = { exerciseID, setID: value };
+  try {
+    switch (action) {
+      case 'log-start-empty':
+      case 'log-start-scheduled':
+        if (!session) state.planRecords = action === 'log-start-empty' ? routineStore.startEmpty() : routineStore.startScheduled(value);
+        render();
+        return showSession('.active-bar');
+      case 'log-save-schedule':
+        state.planRecords = routineStore.schedule(value, dialog.querySelector('#schedule-date').value);
+        dialog.close();
+        render();
+        return announce('Workout scheduled.');
+      case 'log-add-exercise': {
+        const chosen = libraryExercise(dialog.querySelector('#log-exercise-choice').value);
+        if (!chosen) throw new Error('Choose an exercise to add.');
+        const entry = draftExercise(chosen);
+        entry.measurement = dialog.querySelector('#log-measurement').value;
+        entry.counting = dialog.querySelector('#log-counting').value;
+        entry.basis = dialog.querySelector('#log-basis').value;
+        entry.equipmentLabel = dialog.querySelector('#log-equipment').value.trim();
+        if (entry.basis === 'perDumbbell' && chosen.equipment !== 'dumbbell') throw new Error('Select a dumbbell exercise for per-dumbbell load.');
+        if (entry.measurement === 'setting' && !entry.equipmentLabel) throw new Error('Enter a machine name for a machine setting.');
+        entry.work = [];
+        return applyLoggerChange({ action: 'addExercise', entry });
+      }
+      case 'log-complete': return applyLoggerChange({ ...change, action: 'complete' });
+      case 'log-undo': return applyLoggerChange({ ...change, action: 'undo' });
+      case 'log-skip-set': return applyLoggerChange({ ...change, action: 'skipSet' });
+      case 'log-restore-set': return applyLoggerChange({ ...change, action: 'restoreSet' });
+      case 'log-add-set':
+      case 'log-add-warm': return applyLoggerChange({ action: 'addSet', exerciseID: value, purpose: action === 'log-add-warm' ? 'warm-up' : 'working' });
+      case 'log-set-up':
+      case 'log-set-down': return applyLoggerChange({ ...change, action: 'moveSet', direction: action === 'log-set-up' ? -1 : 1 });
+      case 'log-delete-set':
+        if (set.status === 'completed') return confirmLog('Delete this completed set?', 'Delete recorded set', 'log-confirm-delete-set', `${exerciseID}/${value}`);
+        return applyLoggerChange({ ...change, action: 'removeSet' });
+      case 'log-confirm-delete-set': {
+        const [exerciseID, setID] = value.split('/');
+        return applyLoggerChange({ exerciseID, setID, action: 'removeSet' });
+      }
+      case 'log-queue':
+      case 'log-resume': return applyLoggerChange({ action: 'queue', exerciseID: value, value: action === 'log-queue' });
+      case 'log-skip-exercise':
+      case 'log-restore-exercise': return applyLoggerChange({ action: action === 'log-skip-exercise' ? 'skipExercise' : 'restoreExercise', exerciseID: value });
+      case 'log-exercise-up':
+      case 'log-exercise-down': return applyLoggerChange({ action: 'moveExercise', exerciseID: value, direction: action === 'log-exercise-up' ? -1 : 1 });
+      case 'log-delete-exercise':
+        if (exercise.sets.some(row => row.status === 'completed')) return confirmLog('Delete this exercise and its completed sets?', 'Delete recorded exercise', 'log-confirm-delete-exercise', value);
+        return applyLoggerChange({ action: 'removeExercise', exerciseID: value });
+      case 'log-confirm-delete-exercise': return applyLoggerChange({ action: 'removeExercise', exerciseID: value });
+      case 'log-update-routine': return confirmLog('Use this exercise order, set rows and edited targets for future workouts?', 'Save new routine version', 'log-confirm-routine');
+      case 'log-confirm-routine':
+        state.planRecords = routineStore.updateRoutine(session.id);
+        refreshWorkout();
+        dialog.querySelector('#log-confirmation').innerHTML = '<p role="status">Routine saved for future workouts.</p>';
+        return;
+      case 'log-end-early': return confirmEndEarly();
+      case 'log-confirm-end': return finishLogger(session.id, true);
+      case 'log-cancel-confirmation': dialog.querySelector('#log-confirmation').replaceChildren(); break;
+    }
+  } catch (error) { planError(error, focus); }
 }
 
 function selectTab(tab, focus = false) {
@@ -420,7 +550,10 @@ function closeBuilder() {
 
 function planError(error, trigger) {
   const inline = document.querySelector('#plan-error, #plan-session-error');
-  if (inline) inline.textContent = error.message;
+  if (inline) {
+    inline.textContent = error.message;
+    if (trigger) inline.scrollIntoView({ block: 'nearest' });
+  }
   else showDialog('error', 'Routine', `<p class="dialog-description">${escapeHTML(error.message)}</p>`, trigger);
 }
 
@@ -447,16 +580,20 @@ function handlePlanAction(action, value, focus) {
           render();
         }
         return showSession(focus);
+      case 'plan-schedule': {
+        const version = newest(personalRoutine(value));
+        return showDialog('schedule', `Schedule ${escapeHTML(version.name)}`, `<div class="builder-fields">
+          <label>Workout date<input type="date" id="schedule-date" value="${localDayKey()}"></label>
+          <button type="button" class="primary" data-action="log-save-schedule" data-value="${value}">Schedule</button></div>
+          <p class="entry-error" role="alert" id="plan-session-error"></p>`, focus);
+      }
       case 'plan-repeat':
         state.planRecords = routineStore.repeat(value);
         render();
         return showSession('.active-bar');
       case 'plan-finish':
-        state.planRecords = routineStore.finish(value);
-        dialogTrigger = null;
-        dialog.close();
-        render({ focus: '.active-bar' });
-        return announce('Workout finished.');
+        if (activePersonal().log.exercises.some(exercise => exercise.sets.some(set => set.status === 'pending'))) return confirmEndEarly();
+        return finishLogger(value, false);
       case 'plan-session-edit': {
         const session = personalSession(value);
         dialogTrigger = null;
@@ -679,6 +816,10 @@ document.addEventListener('click', event => {
     handlePlanAction(action, value, focus);
     return;
   }
+  if (action.startsWith('log-')) {
+    handleLogAction(action, value, target, focus);
+    return;
+  }
   switch (action) {
     case 'theme': state.appearance = theme() === 'dark' ? 'light' : 'dark'; savePreferences(); render({ focus }); break;
     case 'appearance': state.appearance = value; savePreferences(); render({ focus }); break;
@@ -759,11 +900,39 @@ dialog.addEventListener('close', () => {
 });
 dialog.addEventListener('change', event => {
   const field = event.target;
+  if (dialogAction === 'personal-workout' && field.id === 'log-exercise-choice') {
+    const chosen = libraryExercise(field.value);
+    if (chosen) dialog.querySelector('#log-measurement').value = chosen.equipment ? 'weight' : 'bodyweight';
+    return;
+  }
   if (dialogAction !== 'exercise' || !field.checked || !['primary', 'secondary'].includes(field.name)) return;
   const other = field.name === 'primary' ? 'secondary' : 'primary';
   for (const input of field.form.elements) {
     if (input.name === other && input.value === field.value) input.checked = false;
   }
+});
+
+dialog.addEventListener('input', event => {
+  if (dialogAction !== 'personal-workout') return;
+  const target = event.target;
+  if (target.id === 'log-exercise-search') {
+    dialog.querySelector('#log-exercise-choice').innerHTML = exerciseOptions(catalog, state.exercises, target.value);
+    return;
+  }
+  const field = target.dataset.logField;
+  if (!field) return;
+  const exerciseID = target.closest('[data-log-exercise]')?.dataset.logExercise;
+  const row = target.closest('[data-log-set]');
+  const action = row ? 'editSet' : field;
+  try {
+    applyLoggerChange({ action, exerciseID, setID: row?.dataset.logSet, field,
+      value: target.type === 'checkbox' ? target.checked : target.value }, { refresh: false });
+    if (row) {
+      row.classList.replace('planned', 'edited');
+      row.querySelector('.log-badge').textContent = 'Edited';
+    }
+    dialog.querySelector('#plan-session-error').textContent = '';
+  } catch (error) { planError(error); }
 });
 dialog.addEventListener('submit', event => {
   if (dialogAction === 'exercise' && exerciseDraft) {

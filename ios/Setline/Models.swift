@@ -176,8 +176,29 @@ final class TrainingModel {
         return updateUserData { _ = try $0.startSession(versionID: versionID, scheduleID: scheduleID) }
     }
 
-    func finishSession(_ id: UUID) -> Bool {
-        updateUserData { try $0.finishSession(id) }
+    func finishSession(_ id: UUID, early: Bool = false) -> Bool {
+        updateUserData { try $0.finishSession(id, early: early) }
+    }
+
+    func startEmptyWorkout() -> Bool {
+        if records.activeSession != nil { return true }
+        return updateUserData { _ = try $0.startEmptySession() }
+    }
+
+    func scheduleWorkout(versionID: UUID, date: Date) -> Bool {
+        updateUserData { try $0.addScheduledWorkout(ScheduledWorkout(localDate: WorkoutDate(date), routineVersionID: versionID)) }
+    }
+
+    func prepareWorkoutLog(_ id: UUID) {
+        _ = updateUserData { try $0.prepareWorkoutLog(id) }
+    }
+
+    func logChange(_ id: UUID, _ change: WorkoutLogChange) {
+        _ = updateUserData { try $0.changeWorkout(id, change) }
+    }
+
+    func updateRoutineFromWorkout(_ id: UUID) -> Bool {
+        updateUserData { _ = try $0.updateRoutineFromWorkout(id) }
     }
 
     func saveRoutine(id: UUID, name: String, exercises: [PlannedExercise], categoryID: UUID?, groups: [RoutineGroup],

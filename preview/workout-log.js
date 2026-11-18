@@ -1,0 +1,234 @@
+import { kilogramsPerPound } from './storage.js';
+
+const uuid = () => crypto.randomUUID();
+export const sessionPlan = session => session.override ?? session.snapshot;
+export const variantKey = row => row && JSON.stringify([row.exercise.id, row.measurement, row.equipmentLabel, row.basis, row.counting]);
+const hasReps = row => !['duration', 'distance'].includes(row.measurement);
+const loadKinds = ['weight', 'added', 'assistance'];
+const blank = (purpose = 'working', plan = null) => ({ id: uuid(), purpose, plan, status: 'pending', input: null });
+
+export function sessionInput(set, unit) {
+  if (set.input) return set.input;
+  const { target, reps } = set.plan ?? {};
+  const amount = target && loadKinds.includes(target.kind) && unit === 'lb' ? target.value / kilogramsPerPound : target?.value;
+  return { unit, amount: String(amount ?? ''), reps: String(reps?.minimum ?? ''), rightReps: String(reps?.minimum ?? ''), rir: '', rpe: '', failure: false };
+}
+
+function fromPlan(row) {
+  const expand = (blocks, purpose) => blocks.flatMap(block => Array.from({ length: block.sets }, () => blank(purpose, block)));
+  const count = [...row.warm, ...row.work].reduce((sum, block) => sum + block.sets, 0);
+  if (count > 10000) throw new Error('Reduce this exercise’s set count before logging.');
+  return { id: row.id, notes: '', queuedAt: null, sets: [...expand(row.warm, 'warm-up'), ...expand(row.work, 'working')] };
+}
+
+export function workoutLog(session) {
+  return session.log ?? { notes: '', exercises: sessionPlan(session).exercises.map(row => {
+    const exercise = fromPlan(row);
+    session.results.filter(result => result.exerciseID === row.id).forEach((result, index) => {
+      const slot = exercise.sets[result.order ? result.order - 1 : index];
+      if (slot) Object.assign(slot, { id: result.id ?? slot.id, status: 'completed' });
+      else exercise.sets.push({ ...blank(result.purpose), id: result.id ?? uuid(), status: 'completed' });
+    });
+    return exercise;
+  }) };
+}
+
+export function repeatLog(log) {
+  return { notes: '', exercises: log.exercises.map(exercise => ({ ...exercise, notes: '', queuedAt: null,
+    sets: exercise.sets.map(set => blank(set.purpose, set.plan)) })) };
+}
+
+function number(text, name, minimum, integer = false) {
+  const value = Number(String(text).trim().replace(',', '.'));
+  if (!String(text).trim() || !Number.isFinite(value) || value < minimum || (integer && !Number.isSafeInteger(value))) {
+    throw new Error(`Enter a valid ${name}.`);
+  }
+  return value;
+}
+
+function actualAmount(input, row) {
+  if (row.measurement === 'bodyweight') return null;
+  if (row.measurement === 'setting') {
+    if (!input.amount.trim()) throw new Error('Enter a machine setting.');
+    return { kind: 'setting', value: input.amount.trim() };
+  }
+  let value = number(input.amount, 'performance value', 0);
+  if (!hasReps(row) && value === 0) throw new Error('Enter a value greater than zero.');
+  if (loadKinds.includes(row.measurement) && input.unit === 'lb') value *= kilogramsPerPound;
+  return { kind: row.measurement, value };
+}
+
+function completedResult(input, row, set) {
+  const amount = actualAmount(input, row);
+  const reps = hasReps(row) ? number(input.reps, 'rep count', row.counting === 'separateSides' ? 0 : 1, true) : null;
+  const rightReps = hasReps(row) && row.counting === 'separateSides' ? number(input.rightReps, 'right rep count', 0, true) : null;
+  if (reps === 0 && rightReps === 0) throw new Error('Enter at least one completed rep.');
+  const rir = input.rir === '' ? null : number(input.rir, 'RIR', 0, true);
+  const rpe = input.rpe === '' ? null : number(input.rpe, 'RPE', 1);
+  if (rpe > 10) throw new Error('Enter RPE from 1 to 10.');
+  return { id: set.id, exerciseID: row.id, amount, reps, rightReps, rir, rpe, failure: input.failure,
+    purpose: set.purpose, structure: set.plan?.structure ?? 'straight', amrap: set.plan?.amrap ?? false, at: new Date().toISOString() };
+}
+
+function keepingGroups(groups, exercises) {
+  const ids = exercises.map(row => row.id);
+  return groups.flatMap(group => {
+    const positions = group.members.map(id => ids.indexOf(id)).sort((a, b) => a - b);
+    if (positions[0] < 0 || positions.at(-1) - positions[0] + 1 !== positions.length) return [];
+    return [{ ...group, members: positions.map(index => ids[index]) }];
+  });
+}
+
+export function applyWorkoutChange(session, change, unit) {
+  const log = workoutLog(session);
+  const plan = sessionPlan(session);
+  let exercises = plan.exercises;
+  const exercise = log.exercises.find(item => item.id === change.exerciseID);
+  const row = exercises.find(item => item.id === change.exerciseID);
+  const set = exercise?.sets.find(item => item.id === change.setID);
+  const move = (items, item) => {
+    const from = items.indexOf(item);
+    const to = from + change.direction;
+    if (from >= 0 && Math.abs(change.direction) === 1 && items[to]) [items[from], items[to]] = [items[to], items[from]];
+  };
+  const { action } = change;
+  if (action === 'sessionNotes') log.notes = change.value;
+  else if (action === 'addExercise') {
+    const entry = change.entry;
+    exercises = [...exercises, entry];
+    log.exercises.push({ id: entry.id, notes: '', queuedAt: null, sets: [blank()] });
+  } else {
+    if (!row || !exercise) throw new Error('This exercise is no longer in the workout.');
+    switch (action) {
+      case 'exerciseNotes': exercise.notes = change.value; break;
+      case 'queue': exercise.queuedAt = change.value ? new Date().toISOString() : null; break;
+      case 'removeExercise':
+        log.exercises = log.exercises.filter(item => item !== exercise);
+        exercises = exercises.filter(item => item !== row);
+        break;
+      case 'moveExercise': {
+        move(log.exercises, exercise);
+        const lookup = new Map(exercises.map(entry => [entry.id, entry]));
+        exercises = log.exercises.map(entry => lookup.get(entry.id));
+        break;
+      }
+      case 'skipExercise':
+      case 'restoreExercise':
+        exercise.queuedAt = null;
+        for (const item of exercise.sets) {
+          if (action === 'skipExercise' && item.status === 'pending') item.status = 'skipped';
+          if (action === 'restoreExercise' && item.status === 'skipped') item.status = 'pending';
+        }
+        break;
+      case 'addSet': exercise.sets.push(blank(change.purpose)); break;
+      default:
+        if (!set) throw new Error('This set is no longer in the workout.');
+        switch (action) {
+          case 'editSet':
+            if (set.status === 'pending') set.input = { ...sessionInput(set, unit), [change.field]: change.value };
+            break;
+          case 'removeSet': exercise.sets = exercise.sets.filter(item => item !== set); break;
+          case 'moveSet': move(exercise.sets, set); break;
+          case 'skipSet': if (set.status === 'pending') set.status = 'skipped'; break;
+          case 'restoreSet': if (set.status === 'skipped') set.status = 'pending'; break;
+          case 'undo': if (set.status === 'completed') set.status = 'pending'; break;
+          case 'complete':
+            if (set.status === 'pending' && !exercise.queuedAt) {
+              const input = sessionInput(set, unit);
+              session.results.push(completedResult(input, row, set));
+              set.input = input;
+              set.status = 'completed';
+            }
+            break;
+        }
+    }
+  }
+  if (exercises !== plan.exercises) session.override = { ...plan, exercises, groups: keepingGroups(plan.groups, exercises) };
+  session.log = log;
+  synchronizeResults(session);
+}
+
+export function synchronizeResults(session) {
+  const byID = new Map(session.results.map(result => [result.id, result]));
+  session.results = session.log.exercises.flatMap(exercise => exercise.sets.flatMap((set, index) => {
+    const result = byID.get(set.id);
+    return set.status === 'completed' && result ? [{ ...result, order: index + 1 }] : [];
+  }));
+}
+
+export function reconcileLog(session, prior, next) {
+  if (!session.log) return;
+  session.log.exercises = next.exercises.map(row => {
+    const log = session.log.exercises.find(entry => entry.id === row.id);
+    const old = prior.exercises.find(entry => entry.id === row.id);
+    if (!log || variantKey(old) !== variantKey(row)) return fromPlan(row);
+    if (JSON.stringify([old.warm, old.work]) !== JSON.stringify([row.warm, row.work])) {
+      const replacements = fromPlan(row).sets;
+      log.sets = log.sets.flatMap((set, index) => set.status !== 'pending' || set.input ? [set] : replacements.slice(index, index + 1))
+        .concat(replacements.slice(log.sets.length));
+    }
+    return log;
+  });
+  synchronizeResults(session);
+}
+
+export function routineFromLog(session) {
+  const plan = sessionPlan(session);
+  const log = workoutLog(session);
+  if (!plan.exercises.length) throw new Error('Keep an exercise before updating the routine.');
+  const exercises = plan.exercises.map(row => {
+    const sets = log.exercises.find(exercise => exercise.id === row.id)?.sets ?? [];
+    function blocks(purpose) {
+      const result = [];
+      for (const set of sets.filter(set => set.purpose === purpose)) {
+        const block = { id: set.plan?.id ?? set.id, sets: 1, reps: null, target: null, rest: null,
+          effort: null, amrap: false, structure: 'straight', ...set.plan };
+        block.sets = 1;
+        if (set.input) {
+          const before = sessionInput({ ...set, input: null }, set.input.unit);
+          if (set.input.amount && set.input.amount !== before.amount) block.target = actualAmount(set.input, row);
+          if (hasReps(row) && (set.input.reps !== before.reps || set.input.rightReps !== before.rightReps)) {
+            const left = number(set.input.reps, 'rep target', 1, true);
+            const right = row.counting === 'separateSides' ? number(set.input.rightReps, 'right rep target', 1, true) : left;
+            block.reps = { minimum: Math.min(left, right), maximum: Math.max(left, right) };
+          }
+        }
+        if (hasReps(row) && !block.reps && !block.amrap) throw new Error('Enter valid rep targets for added sets before updating the routine.');
+        const { sets: _sets, id: _id, ...meaning } = block;
+        const prior = result.at(-1);
+        if (prior) {
+          const { sets: _count, id: _priorID, ...priorMeaning } = prior;
+          if (JSON.stringify(meaning) === JSON.stringify(priorMeaning)) { prior.sets++; continue; }
+        }
+        result.push(block);
+      }
+      return result;
+    }
+    const work = blocks('working');
+    if (!work.length) throw new Error('Keep a working set for each exercise before updating the routine.');
+    return { ...row, warm: blocks('warm-up'), work };
+  });
+  return { exercises, groups: plan.groups };
+}
+
+export function previousResult(session, history, row, set, exercise) {
+  const index = exercise.sets.filter(item => item.purpose === set.purpose).indexOf(set);
+  const completed = history.filter(item => item.completedAt).slice().reverse();
+  const reference = completed.find(item => item.id === session.referenceID);
+  for (const item of [...(reference ? [reference] : []), ...completed.filter(item => item !== reference)]) {
+    const matches = sessionPlan(item).exercises.filter(candidate => variantKey(candidate) === variantKey(row));
+    const match = matches.find(candidate => candidate.id === row.id) ?? matches[0];
+    const previous = item.log?.exercises.find(exercise => exercise.id === match?.id);
+    if (previous) {
+      const slot = previous.sets.filter(candidate => candidate.purpose === set.purpose)[index];
+      const result = slot && item.results.find(result => result.id === slot.id);
+      if (result) return result;
+      if (item === reference) return null;
+      continue;
+    }
+    const results = item.results.filter(result => result.exerciseID === match?.id && (result.purpose ?? 'working') === set.purpose);
+    if (results[index]) return results[index];
+    if (item === reference && match) return null;
+  }
+  return null;
+}

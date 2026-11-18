@@ -2,20 +2,20 @@
 
 ## Product and stage
 
-Setline helps experienced lifters follow their own routines, record performance, and review exercise-specific progress. Workouts are always authored by the lifter. Stage 4 adds manual routine creation, editing, and repetition to the existing offline records, exercise library, and interactive muscle maps. **View sample data** opens the separately stored sample week anchored on November 17, 2026.
+Setline helps experienced lifters follow their own routines, record performance, and review exercise-specific progress. Workouts are always authored by the lifter. Stage 5 adds the workout logger to the existing offline records, exercise library, and routine builder. **View sample data** opens the separately stored sample week anchored on November 17, 2026.
 
-- **Today / Log** reads the device calendar, saved schedule, and daily bodyweight. Interactive front and back maps combine muscles across the planned exercises for the selected day. Primary involvement takes precedence when a muscle has both roles.
-- **Routines** creates, edits, duplicates, and categorizes manually authored plans. It shows the current plan and its saved version history, and opens the Exercise Library.
+- **Today / Log** reads the device calendar, saved schedule, and daily bodyweight. It starts a scheduled plan or an empty workout. Interactive front and back maps combine muscles across the planned exercises for the selected day. Primary involvement takes precedence when a muscle has both roles.
+- **Routines** creates, edits, duplicates, categorizes, and schedules manually authored plans. It shows the current plan and its saved version history, and opens the Exercise Library.
 - **History / Progress** reads completed session plans, sets, and bodyweight history. Repeat opens a new workout based on a completed session with its recorded results available for reference. The bench press trend is in the sample preview.
 - **Settings** provides system, light, and dark appearance, solid navigation, and kilogram or pound display.
-- The workout bar is available across all four tabs. The native app can start a saved routine, resume its active session, and finish it. Starting or ending a sample workout changes only the sample preview.
+- The workout bar resumes the persisted active session across all four tabs. The logger shows planned targets and prior results, saves field edits and notes, and supports one-tap completion and undo. Set and exercise controls change order, add and remove rows, or skip pending work. The busy-equipment queue preserves rows for later in the session.
 
 ## Architecture and data conventions
 
 - The iOS 17+ app uses SwiftUI and a single main-actor repository. Each successful record write atomically replaces the versioned `TrainingData.json` file in Application Support. Active sessions and their sets save incrementally. Unsupported schemas block user-store writes. `AppStorage` holds display preferences.
 - Schema 2 migrates manually entered bodyweight from `TrainingState-v1.json` into dated records. The old file stays available and its modification time supplies missing timestamps. Legacy active sample workouts resume in the isolated `SamplePreview-v1.json` state. Bundled sample routines, history, and new sample entries stay outside the personal repository.
 - Navigation uses a 50% surface tint over a blur. The app and browser honor the platform reduced-transparency preference as well as the in-app setting. Native layouts use Dynamic Type and accessibility labels.
-- Both implementations work without an internet connection or an account. The browser preview serves its assets over loopback and stores routine plans, sessions, bodyweight, preferences, and the sample preview in separate local keys. The full performed-set repository is native. [Sample data](ios/Setline/Resources/SampleData.json)
+- Both implementations work without an internet connection or an account. The browser preview serves its assets over loopback and stores routine plans, schedules, session logs, bodyweight, preferences, and the sample preview in local keys. [Sample data](ios/Setline/Resources/SampleData.json)
 - The layout draws on daily dashboard and progress patterns, as well as Apple’s native control and material conventions. [Appetite UI Fitness](https://www.appetiteui.com/docs/screens-fitness) · [Apple Design Resources](https://developer.apple.com/design/resources/) · [Apple’s Reduce Transparency documentation](https://developer.apple.com/documentation/swiftui/environmentvalues/accessibilityreducetransparency)
 
 ## Training records
@@ -33,12 +33,15 @@ Setline helps experienced lifters follow their own routines, record performance,
 - Routine versions store ordered exercise slots, a category, and optional groups. A superset contains two consecutive exercises, and a circuit can contain two or more. Round count and rest between exercises and between rounds are recorded separately. Duplicates get fresh routine, group, and slot IDs.
 - Set blocks separate warm-up and working prescriptions. Set structure, AMRAP, and the effort goal are independent. A goal can use RIR, RPE, or failure. Recorded effort outcomes are stored on performed sets separately from the prescribed goal.
 - Workout-only edits save an effective plan on the active session. The starting snapshot and the source routine version are retained. Completed sessions are read-only. Repeats reference the completed session’s results and start with an empty performed-set list.
+- Pending, skipped, and completed are separate set states. Prefills and edits save as inputs. Explicit completion creates a performed result with typed measurements and optional actual RIR, RPE, and failure. End early retains completed, skipped, and unfinished rows as recorded. Repeats reset statuses, notes, and the queue while copying the session’s exercise and set structure.
+- Today-only edits are the default. **Update routine** explicitly promotes the current order, set rows, and edited targets to a new version of the linked routine. Older versions, recorded effort, session notes, and completed sessions retain their original data. A newer routine version requires editing from Routines.
 
 ## Verification and remaining work
 
 - Browser tests cover search, exercise preferences, custom exercise identities, substitutions, and muscle involvement, alongside the previous local storage checks. Chromium at iPhone width checks direct and keyboard muscle selection, combined filters, custom creation and edits, saved preferences after reload, the sample plan after browsing substitutions, and the empty library with the catalog unavailable.
 - Routine tests cover creation and categories, reorder, grouping, measurements, duplication, immutable history, workout-only edits, and start-from-history behavior. The browser workflow exercises those controls at phone width. Swift syntax and Xcode source membership passed static checks on Windows. The native test suite requires a Swift toolchain, and the app still needs an Xcode build, device testing, and a VoiceOver pass.
-- Future stages include schedule authoring, set entry screens, readiness and photo entry, and exercise-specific progression. Prediction panels are static placeholders. Photo selection will need PhotosPicker. Apple Watch needs a watchOS target and WatchConnectivity. Lock Screen needs an ActivityKit Live Activity and WidgetKit extension.
+- Workout tests cover scheduled and empty starts, deliberate completion, undo, set and exercise edits, notes, equipment queue restoration, version promotion, end-early records, and prior results on repeat. Phone-width Chromium covered the workflow and accessibility checks.
+- Future stages include program scheduling, readiness and photo entry, and exercise-specific progression. Prediction panels are static placeholders. Photo selection will need PhotosPicker. Apple Watch needs a watchOS target and WatchConnectivity. Lock Screen needs an ActivityKit Live Activity and WidgetKit extension.
 
 ## Artwork
 

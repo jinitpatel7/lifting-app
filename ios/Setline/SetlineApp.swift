@@ -33,7 +33,7 @@ private enum MainTab: String, CaseIterable, Identifiable {
 
 private enum ActiveSheet: Identifiable {
     case bodyweight(String), workout, exerciseLibrary(MuscleGroup?)
-    case routineEditor(RoutineVersion?), routineHistory(UUID)
+    case routineEditor(RoutineVersion?), routineHistory(UUID), schedule(RoutineVersion)
 
     var id: String {
         switch self {
@@ -42,6 +42,7 @@ private enum ActiveSheet: Identifiable {
         case .exerciseLibrary(let group): "exercises-\(group?.rawValue ?? "all")"
         case .routineEditor(let version): "routine-\(version?.id.uuidString ?? "new")"
         case .routineHistory(let id): "versions-\(id.uuidString)"
+        case .schedule(let version): "schedule-\(version.id.uuidString)"
         }
     }
 }
@@ -94,6 +95,8 @@ struct SetlineRoot: View {
                 RoutineEditor(model: model, unit: unit, original: version)
             case .routineHistory(let id):
                 RoutineHistorySheet(versions: model.records.versions(for: id), categories: model.records.routineCategories ?? [], unit: unit)
+            case .schedule(let version):
+                ScheduleWorkoutSheet(model: model, version: version)
             }
         }
         .alert("Local storage", isPresented: Binding(
@@ -114,7 +117,8 @@ struct SetlineRoot: View {
                             start: start, editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
             } else {
                 PersonalTodayScreen(records: model.records, unit: unit, browse: { tab = .routines },
-                                    start: startSession, editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
+                                    start: startSession, startEmpty: { if model.startEmptyWorkout() { sheet = .workout } },
+                                    editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
             }
         case .routines:
             if showsSample, let sample = model.sample {
@@ -123,7 +127,8 @@ struct SetlineRoot: View {
             } else {
                 PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession,
                     browseLibrary: { sheet = .exerciseLibrary(nil) }, edit: { sheet = .routineEditor($0) },
-                    duplicate: { _ = model.duplicateRoutine($0) }, versionHistory: { sheet = .routineHistory($0) })
+                    duplicate: { _ = model.duplicateRoutine($0) }, versionHistory: { sheet = .routineHistory($0) },
+                    schedule: { sheet = .schedule($0) })
             }
         case .history:
             if showsSample, let sample = model.sample {
@@ -320,71 +325,33 @@ private struct WorkoutSheet: View {
     let sampleMode: Bool
     let browse: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var editing = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                if !sampleMode, let session = model.records.activeSession {
-                    Section("Saved session plan") {
-                        RoutinePlanRows(version: session.plan, unit: unit)
-                        Button("Edit this workout") { editing = true }.frame(minHeight: 44)
-                    }
-                    if let source = model.records.sessions.first(where: { $0.id == session.referenceSessionID }) {
-                        Section("Previous results") {
-                            Text(source.localDate.formatted(.dateTime.month(.wide).day().year())).font(.caption)
-                            if source.performedSets.isEmpty { Text("No sets were recorded for this workout.") }
-                            ForEach(source.plan.exercises) { exercise in
-                                let results = source.performedSets.filter { $0.plannedExerciseID == exercise.id }.sorted { $0.order < $1.order }
-                                if !results.isEmpty {
-                                    Text(exercise.variant.exercise.name).font(.subheadline.weight(.semibold))
-                                    ForEach(results) { result in
-                                        Text(result.summary(unit: unit, measurement: exercise.variant.measurement)).font(.caption)
-                                    }
-                                }
+        if !sampleMode && model.records.activeSession != nil {
+            WorkoutLogger(model: model, unit: unit)
+        } else {
+            NavigationStack {
+                List {
+                    if sampleMode, let routine = model.activeRoutine {
+                        Section("Active workout preview · Sample routine") {
+                            ForEach(routine.exercises) { exercise in
+                                LabeledContent(exercise.name, value: exercise.prescription)
                             }
                         }
-                    }
-                    Section {
-                        Button("Finish workout") {
-                            if model.finishSession(session.id) { dismiss() }
+                        Button("End workout preview", role: .destructive) {
+                            if model.endPreview() { dismiss() }
                         }
-                        .frame(minHeight: 44)
-                    } footer: {
-                        if let error = model.storageError { Text(error).foregroundStyle(Palette.red) }
+                        Text("Switch to personal mode to record a workout.").font(.caption)
+                    } else {
+                        if !sampleMode { Button("Start empty workout") { _ = model.startEmptyWorkout() }.frame(minHeight: 44) }
+                        Button("Browse routines", action: browse).frame(minHeight: 44)
                     }
-                } else if sampleMode, let routine = model.activeRoutine {
-                    Section("Active workout preview · Sample routine") {
-                        ForEach(routine.exercises) { exercise in
-                            LabeledContent(exercise.name, value: exercise.prescription)
-                        }
-                    }
-                    Section {
-                        Button(role: .destructive) {
-                            if model.endPreview() {
-                                model.storageError = nil
-                                dismiss()
-                            }
-                        } label: {
-                            Text("End workout preview").frame(minHeight: 44)
-                        }
-                    } footer: {
-                        Text(model.storageError ?? "Set logging and session history will be available in a later stage.")
-                            .foregroundStyle(model.storageError == nil ? Palette.muted : Palette.red)
-                    }
-                } else {
-                    Text(sampleMode ? "Choose a sample routine to start a workout preview." : "Choose a saved routine to start a workout.")
-                    Button("Browse routines", action: browse).frame(minHeight: 44)
+                    if let error = model.storageError { Text(error).foregroundStyle(Palette.red) }
                 }
-            }
-            .navigationTitle((sampleMode ? model.activeRoutine?.name : model.records.activeSession?.plan.name) ?? "Workout log")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .tint(Palette.purple)
-            .sheet(isPresented: $editing) {
-                if let session = model.records.activeSession {
-                    RoutineEditor(model: model, unit: unit, original: session.plan, sessionID: session.id)
-                }
+                .navigationTitle(model.activeRoutine?.name ?? "Workout log")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+                .tint(Palette.purple)
             }
         }
     }

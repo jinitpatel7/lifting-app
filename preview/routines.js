@@ -1,4 +1,6 @@
 import { kilogramsPerPound, localDayKey } from './storage.js';
+import { applyWorkoutChange, reconcileLog, repeatLog, routineFromLog, sessionPlan, variantKey, workoutLog } from './workout-log.js';
+export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
 const uuid = () => crypto.randomUUID();
@@ -6,7 +8,6 @@ const uuid = () => crypto.randomUUID();
 export const measurements = { weight: 'Weight and reps', bodyweight: 'Bodyweight', added: 'Added load', assistance: 'Assistance',
   duration: 'Duration', distance: 'Distance', setting: 'Machine setting' };
 export const hasReps = measurement => !['duration', 'distance'].includes(measurement);
-export const sessionPlan = session => session.override ?? session.snapshot;
 export const newest = routine => routine.versions.at(-1);
 export const blankSet = () => ({ id: uuid(), sets: '1', minimum: '', maximum: '', target: '', rest: '',
   structure: 'straight', amrap: false, effort: 'none', effortValue: '' });
@@ -35,11 +36,11 @@ function optionalNumber(input, label, minimum) {
   return value;
 }
 
-function setPrescription(set, measurement, unit) {
+function setPrescription(set, measurement, unit, sessionOnly) {
   const sets = whole(set.sets, 'Set count', 1);
   const amrap = hasReps(measurement) && set.amrap;
   let reps = null;
-  if (hasReps(measurement) && (!amrap || set.minimum !== '' || set.maximum !== '')) {
+  if (hasReps(measurement) && ((!amrap && !sessionOnly) || set.minimum !== '' || set.maximum !== '')) {
     const minimum = whole(set.minimum, 'Minimum reps', 1);
     reps = { minimum, maximum: whole(set.maximum || set.minimum, 'Maximum reps', minimum) };
   }
@@ -69,20 +70,20 @@ function setPrescription(set, measurement, unit) {
   return { id: set.id, sets, reps, target, rest, structure: set.structure, amrap, effort };
 }
 
-export function validatedPlan(draft, unit) {
+export function validatedPlan(draft, unit, sessionOnly = false) {
   const name = draft.name.trim();
   if (!name || !draft.exercises.length) throw new Error('Enter a routine name and add an exercise.');
   if (new Set(draft.exercises.map(row => row.id)).size !== draft.exercises.length) throw new Error('Each exercise needs its own slot.');
   const exercises = draft.exercises.map(row => {
     const { id, exercise, equipmentLabel, measurement, basis, counting, warm, work } = row;
-    if (!Object.hasOwn(measurements, measurement) || !work.length) throw new Error(`Choose a measurement and working set for ${exercise.name}.`);
+    if (!Object.hasOwn(measurements, measurement) || (!work.length && !sessionOnly)) throw new Error(`Choose a measurement and working set for ${exercise.name}.`);
     if (measurement === 'setting' && !equipmentLabel.trim()) throw new Error(`Enter the machine name for ${exercise.name}.`);
     if (measurement === 'weight' && basis === 'perDumbbell' && exercise.equipment !== 'dumbbell') {
       throw new Error('Use per-dumbbell load with a dumbbell exercise.');
     }
     try {
       return { id, exercise, equipmentLabel: equipmentLabel.trim(), measurement, basis, counting,
-        warm: warm.map(set => setPrescription(set, measurement, unit)), work: work.map(set => setPrescription(set, measurement, unit)) };
+        warm: warm.map(set => setPrescription(set, measurement, unit, sessionOnly)), work: work.map(set => setPrescription(set, measurement, unit, sessionOnly)) };
     } catch (error) { throw new Error(`${exercise.name}: ${error.message}`); }
   });
   const occupied = new Set();
@@ -128,10 +129,10 @@ export function reorder(items, fromID, toID) {
 export function createRoutineStore(storage) {
   function load() {
     const raw = storage.getItem(storageKey);
-    if (raw === null) return { categories: [], routines: [], sessions: [] };
+    if (raw === null) return { categories: [], routines: [], sessions: [], schedule: [] };
     const data = JSON.parse(raw);
     if (![data?.categories, data?.routines, data?.sessions].every(Array.isArray)) throw new Error('Routine storage could not be read.');
-    return data;
+    return { ...data, schedule: data.schedule ?? [] };
   }
 
   function save(change) {
@@ -141,11 +142,19 @@ export function createRoutineStore(storage) {
     return data;
   }
 
-  function addSession(data, snapshot, referenceID = null) {
+  function addSession(data, snapshot, referenceID = null, scheduleID = null, source = null) {
     if (data.sessions.some(session => !session.completedAt)) throw new Error('Finish the active workout before starting another.');
     const now = new Date();
-    data.sessions.push({ id: uuid(), snapshot, override: null, referenceID, startedAt: now.toISOString(),
-      localDate: localDayKey(now), completedAt: null, results: [] });
+    const session = { id: uuid(), snapshot, override: null, referenceID, scheduleID, startedAt: now.toISOString(),
+      localDate: localDayKey(now), completedAt: null, results: [], routineBaseID: source?.routineBaseID ?? snapshot.id };
+    session.log = source ? repeatLog(workoutLog(source)) : workoutLog(session);
+    data.sessions.push(session);
+  }
+
+  function active(data, id) {
+    const session = data.sessions.find(item => item.id === id && !item.completedAt);
+    if (!session) throw new Error('This workout is already complete.');
+    return session;
   }
 
   return {
@@ -197,31 +206,75 @@ export function createRoutineStore(storage) {
         addSession(data, newest(routine));
       });
     },
+    startEmpty() {
+      return save(data => addSession(data, { id: uuid(), routineID: uuid(), revision: 0, name: 'Empty workout',
+        createdAt: new Date().toISOString(), categoryID: null, exercises: [], groups: [] }));
+    },
+    schedule(routineID, date) {
+      return save(data => {
+        const routine = data.routines.find(item => item.id === routineID);
+        if (!routine || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date))) throw new Error('Choose a workout date.');
+        if (data.schedule.some(item => item.date === date && item.versionID === newest(routine).id)) return;
+        data.schedule.push({ id: uuid(), date, versionID: newest(routine).id });
+      });
+    },
+    startScheduled(id) {
+      return save(data => {
+        const entry = data.schedule.find(item => item.id === id);
+        const version = data.routines.flatMap(routine => routine.versions).find(item => item.id === entry?.versionID);
+        if (!version) throw new Error('Scheduled routine not found.');
+        addSession(data, version, null, id);
+      });
+    },
     repeat(sessionID) {
       return save(data => {
         const session = data.sessions.find(item => item.id === sessionID && item.completedAt);
         if (!session) throw new Error('Choose a completed workout to repeat.');
-        addSession(data, sessionPlan(session), sessionID);
+        addSession(data, sessionPlan(session), sessionID, null, session);
       });
     },
     editSession(sessionID, draft, unit) {
       return save(data => {
-        const session = data.sessions.find(item => item.id === sessionID && !item.completedAt);
-        if (!session) throw new Error('This workout is already complete.');
+        const session = active(data, sessionID);
         const prior = sessionPlan(session);
-        const plan = validatedPlan(draft, unit);
-        const identity = row => row && [row.exercise.id, row.measurement, row.equipmentLabel, row.basis, row.counting].join('\u0000');
-        if (session.results.some(result => identity(prior.exercises.find(row => row.id === result.exerciseID)) !==
-          identity(plan.exercises.find(row => row.id === result.exerciseID)))) {
+        const plan = validatedPlan(draft, unit, true);
+        if (session.results.some(result => variantKey(prior.exercises.find(row => row.id === result.exerciseID)) !==
+          variantKey(plan.exercises.find(row => row.id === result.exerciseID)))) {
           throw new Error('Keep the exercise and measurement for sets already logged in this workout.');
         }
         session.override = { ...prior, ...plan, categoryID: prior.categoryID };
+        reconcileLog(session, prior, session.override);
       });
     },
-    finish(sessionID) {
+    prepare(sessionID) {
       return save(data => {
-        const session = data.sessions.find(item => item.id === sessionID && !item.completedAt);
-        if (!session) throw new Error('This workout is already complete.');
+        const session = active(data, sessionID);
+        if (session.log) return;
+        session.results = session.results.map(result => result.id ? result : { ...result, id: uuid() });
+        session.log = workoutLog(session);
+      });
+    },
+    logChange(sessionID, change, unit) {
+      return save(data => applyWorkoutChange(active(data, sessionID), change, unit));
+    },
+    updateRoutine(sessionID) {
+      return save(data => {
+        const session = active(data, sessionID);
+        const routine = data.routines.find(item => item.id === sessionPlan(session).routineID);
+        if (!routine) throw new Error('This workout has no linked routine.');
+        const current = newest(routine);
+        if (current.id !== (session.routineBaseID ?? session.snapshot.id)) throw new Error('A newer routine version exists. Open Routines to edit it directly.');
+        const proposal = routineFromLog(session);
+        if (JSON.stringify([current.exercises, current.groups]) === JSON.stringify([proposal.exercises, proposal.groups])) return;
+        const version = { ...current, ...proposal, id: uuid(), revision: current.revision + 1, createdAt: new Date().toISOString() };
+        routine.versions.push(version);
+        session.routineBaseID = version.id;
+      });
+    },
+    finish(sessionID, early = false) {
+      return save(data => {
+        const session = active(data, sessionID);
+        session.endedEarly = early || session.log?.exercises.some(exercise => exercise.sets.some(set => set.status === 'pending')) || false;
         session.completedAt = new Date().toISOString();
       });
     },

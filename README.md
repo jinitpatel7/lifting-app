@@ -6,6 +6,8 @@ Open **Routines → Exercise Library** to search the built-in catalog, add custo
 
 Open **Routines → New routine** in personal mode to build a plan. Drag exercise rows to reorder them. The routine options contain **Edit routine**, **Duplicate routine**, and **Version history**. Use **History → Sessions → Repeat workout** to start from a completed plan and reference its recorded results.
 
+Schedule a saved routine from **Routines** and start it on **Today**, or choose **Start empty workout**. Use the workout bar to return to the active session from any tab. **Complete set** records the displayed values, and **Undo completion** returns the set to pending. **End early** saves completed results alongside skipped and unfinished rows.
+
 ## Open the preview
 
 Run `npm run dev` from this folder. The Node.js preview stores routines, workout plans, weights, and preferences in the browser and includes the separate sample mode. [Open the local preview](http://127.0.0.1:4173/)

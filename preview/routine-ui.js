@@ -110,7 +110,7 @@ export function renderRoutineBuilder(builder, records, catalog, exercises, unit)
     ${button(sessionID ? 'Save this workout' : 'Save routine', 'plan-save', null, 'primary')}`;
 }
 
-function amount(target, unit) {
+export function amount(target, unit) {
   if (!target) return '';
   if (target.kind === 'setting') return `Setting ${target.value}`;
   if (target.kind === 'duration') return `${target.value}s`;
@@ -120,7 +120,7 @@ function amount(target, unit) {
   return `${Number(value.toFixed(2))} ${unit}${suffix}`;
 }
 
-function setSummary(block, row, unit) {
+export function setSummary(block, row, unit) {
   const range = block.reps && (block.reps.minimum === block.reps.maximum ? block.reps.minimum : `${block.reps.minimum}–${block.reps.maximum}`);
   const counting = { perSide: ' per side', separateSides: ' per side (logged separately)' }[row.counting] ?? '';
   const load = amount(block.target, unit);
@@ -149,7 +149,7 @@ export function renderPersonalRoutines(data, categoryID, unit, active, entry) {
       <h2>${html(plan.name)}</h2><p class="builder-hint">Version ${plan.revision}${plan.categoryID ? ` · ${html(categories[plan.categoryID])}` : ''}</p>
       ${renderPlan(plan, unit)}
       <div class="builder-actions">${button(active ? 'Resume workout' : 'Log workout', 'plan-start', plan.routineID, 'primary')}
-        ${button('Edit routine', 'plan-edit', plan.routineID)}${button('Duplicate routine', 'plan-duplicate', plan.routineID)}${button('Version history', 'plan-versions', plan.routineID)}</div>
+        ${button('Schedule workout', 'plan-schedule', plan.routineID)}${button('Edit routine', 'plan-edit', plan.routineID)}${button('Duplicate routine', 'plan-duplicate', plan.routineID)}${button('Version history', 'plan-versions', plan.routineID)}</div>
     </article>`).join('') || `<section class="surface settings-card"><h2>${categoryID ? 'No routines in this category' : 'No saved routines'}</h2></section>`}</div>`;
 }
 
@@ -158,20 +158,10 @@ export function renderVersions(routine, unit) {
     <summary>Version ${version.revision} · ${html(version.name)}</summary>${renderPlan(version, unit)}</details>`).join('')}</div>`;
 }
 
-export function renderSession(session, previous, unit) {
-  const results = previous?.results ?? [];
-  return `${renderPlan(sessionPlan(session), unit)}
-    ${previous ? `<section class="previous-results"><h3>Previous results</h3>${results.length
-      ? results.map(result => `<p>${html(sessionPlan(previous).exercises.find(row => row.id === result.exerciseID)?.exercise.name ?? 'Exercise')} · ${html(amount(result.amount, unit))}${result.reps ? ` · ${html(result.reps)} reps` : ''}</p>`).join('')
-      : '<p>No sets were recorded for this workout.</p>'}</section>` : ''}
-    <div class="builder-actions">${button('Edit this workout', 'plan-session-edit', session.id)}${button('Finish workout', 'plan-finish', session.id, 'primary')}</div>
-    <p class="entry-error" role="alert" id="plan-session-error"></p>`;
-}
-
-export function renderCompletedSessions(sessions, unit, active, date) {
+export function renderCompletedSessions(sessions, unit, active, date, renderLogged) {
   return `<div class="stack session-list">${sessions.filter(session => session.completedAt).slice().reverse().map(session => {
     const plan = sessionPlan(session);
-    return `<article class="surface settings-card saved-routine"><h2>${html(plan.name)}</h2><p class="builder-hint">${html(date(session))} · ${session.results.length} recorded sets</p>
-      ${renderPlan(plan, unit)}${active ? '' : button('Repeat workout', 'plan-repeat', session.id)}</article>`;
+    return `<article class="surface settings-card saved-routine"><h2>${html(plan.name)}</h2><p class="builder-hint">${html(date(session))} · ${session.results.length} recorded sets${session.endedEarly ? ' · Ended early' : ''}</p>
+      ${session.log ? renderLogged(session, unit) : renderPlan(plan, unit)}${active ? '' : button('Repeat workout', 'plan-repeat', session.id)}</article>`;
   }).join('') || '<section class="surface settings-card"><h2>No completed workouts</h2><p class="builder-hint">Finished workouts will appear here.</p></section>'}</div>`;
 }

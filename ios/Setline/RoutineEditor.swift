@@ -120,7 +120,7 @@ struct RoutineEditor: View {
     private func save() {
         error = nil
         do {
-            let exercises = try rows.map { try $0.planned(unit: unit) }
+            let exercises = try rows.map { try $0.planned(unit: unit, allowsUntargetedReps: sessionID != nil) }
             let saved: Bool
             if let sessionID {
                 saved = model.editSessionPlan(sessionID, name: name.trimmed, exercises: exercises, groups: groups)
@@ -195,7 +195,7 @@ private struct RoutineGroupEditor: View {
     }
 }
 
-private enum MeasurementChoice: String, CaseIterable, Identifiable, Hashable {
+enum MeasurementChoice: String, CaseIterable, Identifiable, Hashable {
     case weight = "Weight and reps", bodyweight = "Bodyweight", added = "Added load", assistance = "Assistance"
     case duration = "Duration", distance = "Distance", setting = "Machine setting"
     var id: Self { self }
@@ -279,14 +279,18 @@ private struct ExercisePlanDraft: Identifiable {
         work = entry.workingSets.map { SetPlanDraft($0, unit: unit) }
     }
 
-    func planned(unit: WeightUnit) throws -> PlannedExercise {
+    func planned(unit: WeightUnit, allowsUntargetedReps: Bool) throws -> PlannedExercise {
         let measurement = choice.measurement(basis: basis, reps: counting)
         guard measurement.supports(equipment) else {
             throw TrainingDataError.invalidRecord("Choose compatible equipment for \(exercise.name).")
         }
-        let working = try work.map { try $0.prescription(choice: choice, measurement: measurement, unit: unit) }
+        let working = try work.map {
+            try $0.prescription(choice: choice, measurement: measurement, unit: unit, allowsUntargetedReps: allowsUntargetedReps)
+        }
         guard let first = working.first else { throw TrainingDataError.invalidRecord("Add a working set block for \(exercise.name).") }
-        let warm = try warmUps.map { try $0.prescription(choice: choice, measurement: measurement, unit: unit) }
+        let warm = try warmUps.map {
+            try $0.prescription(choice: choice, measurement: measurement, unit: unit, allowsUntargetedReps: allowsUntargetedReps)
+        }
         return PlannedExercise(id: id, variant: ExerciseVariant(exercise: exercise, equipment: equipment, measurement: measurement),
                                prescription: first, warmUps: warm.isEmpty ? nil : warm,
                                additionalWorkingSets: working.count > 1 ? Array(working.dropFirst()) : nil)
@@ -341,10 +345,10 @@ private struct SetPlanDraft: Identifiable {
         originalAmount = ""
     }
 
-    func prescription(choice: MeasurementChoice, measurement: Measurement, unit: WeightUnit) throws -> SetPrescription {
+    func prescription(choice: MeasurementChoice, measurement: Measurement, unit: WeightUnit, allowsUntargetedReps: Bool) throws -> SetPrescription {
         guard let sets = Int(count.trimmed), sets > 0 else { throw TrainingDataError.invalidRecord("Each set block needs a positive set count.") }
         var reps: RepRange?
-        if choice.hasReps, !amrap || !minReps.trimmed.isEmpty || !maxReps.trimmed.isEmpty {
+        if choice.hasReps, (!amrap && !allowsUntargetedReps) || !minReps.trimmed.isEmpty || !maxReps.trimmed.isEmpty {
             guard let minimum = Int(minReps.trimmed), let maximum = Int(maxReps.trimmed.isEmpty ? minReps.trimmed : maxReps.trimmed) else {
                 throw TrainingDataError.invalidRecord("Enter a rep range or enable AMRAP.")
             }
@@ -372,7 +376,9 @@ private struct SetPlanDraft: Identifiable {
         let target = amount == originalAmount && originalTarget != nil ? originalTarget : try choice.amount(amount, unit: unit)
         let result = SetPrescription(sets: sets, reps: reps, target: target, repsInReserve: rir, restSeconds: restSeconds,
                                      structure: structure == .straight ? nil : structure, amrap: choice.hasReps && amrap ? true : nil, effort: effort)
-        guard result.isValid(for: measurement) else { throw TrainingDataError.invalidRecord("Check the rep range, target, rest, and effort for each set block.") }
+        guard result.isValid(for: measurement, allowsUntargetedReps: allowsUntargetedReps) else {
+            throw TrainingDataError.invalidRecord("Check the rep range, target, rest, and effort for each set block.")
+        }
         return result
     }
 }
