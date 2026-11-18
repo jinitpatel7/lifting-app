@@ -20,7 +20,11 @@ struct WorkoutSetInput: Codable, Equatable {
     }
 
     init(result: PerformedSet) {
-        unit = .kg
+        self.init(result: result, unit: .kg)
+    }
+
+    init(result: PerformedSet, unit: WeightUnit) {
+        self.unit = unit
         prefillAmount(result.amount)
         switch result.repetitions {
         case .total(let count), .perSide(let count): reps = String(count)

@@ -14,6 +14,8 @@ Open **Today → Training schedule** to set your week start, switch to a rolling
 
 Use **Readiness** for an optional daily check-in and **Recent training** on the muscle map to see when each muscle last had logged work.
 
+Open **History → Sessions** for the calendar or chronological list. Use **Add missed workout** to record an earlier session, or **Edit workout** to correct completed results and notes. Choose **Compare sessions** to view two workouts side by side. Finishing a workout opens its summary before you return to the app.
+
 ## Open the preview
 
 Run `npm run dev` from this folder. The Node.js preview stores routines, workout plans, weights, and preferences in the browser and includes the separate sample mode. [Open the local preview](http://127.0.0.1:4173/)

@@ -29,6 +29,8 @@
 		100000000000000000000121 /* WorkoutLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000222 /* WorkoutLogger.swift */; };
 		100000000000000000000122 /* SchedulePlanning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000223 /* SchedulePlanning.swift */; };
 		100000000000000000000123 /* ScheduleScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000224 /* ScheduleScreens.swift */; };
+		100000000000000000000124 /* WorkoutHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000225 /* WorkoutHistory.swift */; };
+		100000000000000000000125 /* HistoryScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000226 /* HistoryScreens.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +58,8 @@
 		100000000000000000000222 /* WorkoutLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLogger.swift; sourceTree = "<group>"; };
 		100000000000000000000223 /* SchedulePlanning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SchedulePlanning.swift; path = Data/SchedulePlanning.swift; sourceTree = "<group>"; };
 		100000000000000000000224 /* ScheduleScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleScreens.swift; sourceTree = "<group>"; };
+		100000000000000000000225 /* WorkoutHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WorkoutHistory.swift; path = Data/WorkoutHistory.swift; sourceTree = "<group>"; };
+		100000000000000000000226 /* HistoryScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryScreens.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,6 +97,8 @@
 				100000000000000000000222 /* WorkoutLogger.swift */,
 				100000000000000000000223 /* SchedulePlanning.swift */,
 				100000000000000000000224 /* ScheduleScreens.swift */,
+				100000000000000000000225 /* WorkoutHistory.swift */,
+				100000000000000000000226 /* HistoryScreens.swift */,
 				100000000000000000000403 /* Resources */,
 			);
 			path = Setline;
@@ -196,6 +202,8 @@
 				100000000000000000000121 /* WorkoutLogger.swift in Sources */,
 				100000000000000000000122 /* SchedulePlanning.swift in Sources */,
 				100000000000000000000123 /* ScheduleScreens.swift in Sources */,
+				100000000000000000000124 /* WorkoutHistory.swift in Sources */,
+				100000000000000000000125 /* HistoryScreens.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

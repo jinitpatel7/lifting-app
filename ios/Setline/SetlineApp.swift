@@ -63,6 +63,7 @@ struct SetlineRoot: View {
     @State private var day: String?
     @State private var routine: Routine?
     @State private var history: HistoryScreen.Section = .progress
+    @State private var historyDay: WorkoutDate?
     @State private var showsSample = false
 
     var body: some View {
@@ -89,7 +90,12 @@ struct SetlineRoot: View {
             case .bodyweight(let date):
                 WeightSheet(model: model, date: date, unit: unit, sampleMode: showsSample)
             case .workout:
-                WorkoutSheet(model: model, unit: unit, sampleMode: showsSample) {
+                WorkoutSheet(model: model, unit: unit, sampleMode: showsSample, viewHistory: { date in
+                    sheet = nil
+                    historyDay = date
+                    history = .sessions
+                    tab = .history
+                }) {
                     sheet = nil
                     tab = .routines
                 }
@@ -145,9 +151,8 @@ struct SetlineRoot: View {
             if showsSample, let sample = model.sample {
                 HistoryScreen(sample: sample, unit: unit, selection: $history)
             } else {
-                PersonalHistoryScreen(sessions: model.records.sessions, bodyweight: model.records.bodyweightEntries,
-                                      unit: unit, repeatWorkout: repeatWorkout, hasActiveWorkout: model.records.activeSession != nil,
-                                      selection: $history)
+                PersonalHistoryScreen(model: model, unit: unit, repeatWorkout: repeatWorkout, resume: { sheet = .workout },
+                                      jumpTo: $historyDay, selection: $history)
             }
         case .settings:
             SettingsScreen(appearance: $appearance, opaque: $opaque, unit: $unit)
@@ -358,12 +363,16 @@ private struct WorkoutSheet: View {
     let model: TrainingModel
     let unit: WeightUnit
     let sampleMode: Bool
+    let viewHistory: (WorkoutDate) -> Void
     let browse: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var finished: UUID?
 
     var body: some View {
-        if !sampleMode && model.records.activeSession != nil {
-            WorkoutLogger(model: model, unit: unit)
+        if let finished, let session = model.records.sessions.first(where: { $0.id == finished }) {
+            HistoryFinishView(session: session, sessions: model.records.sessions, unit: unit, viewHistory: viewHistory)
+        } else if !sampleMode && model.records.activeSession != nil {
+            WorkoutLogger(model: model, unit: unit) { finished = $0 }
         } else {
             NavigationStack {
                 List {

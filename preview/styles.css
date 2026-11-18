@@ -263,6 +263,37 @@ h2 { font-size: 1.17rem; line-height: 1.2; letter-spacing: -.033em; font-weight:
 .key-dot.untrained-dot { background: #d8d2e3; }
 .recent-key { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .map-role.logged-date { text-transform: none; }
+.history-filters summary, .history-card summary { cursor: pointer; padding-block: .35rem; }
+.history-filters .builder-fields, .history-filters button { margin-top: .65rem; }
+.history-content [aria-pressed="true"] { border-color: var(--accent); }
+.history-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .24rem; }
+.history-weekday { text-align: center; font-size: .72rem; color: var(--muted); }
+.history-day { display: grid; place-content: center; justify-items: center; min-height: 44px; color: var(--text); background: var(--surface-soft);
+  border: 1px solid var(--border); border-radius: .55rem; }
+.history-day[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: -2px; }
+.history-day-dots { min-height: 7px; display: flex; gap: 3px; }
+.history-day-dots i { width: 5px; height: 5px; border-radius: 50%; background: #39926a; }
+.history-day-dots .has-incomplete { background: var(--accent); border-radius: 1px; }
+.history-card h3, .history-card h4, .history-exercise p { margin-block: .2rem; }
+.history-exercise, .history-photos { border-block-start: 1px solid var(--border); padding-block: .5rem; }
+.history-results { display: grid; gap: .4rem; padding: 0; list-style: none; }
+.history-results li { display: grid; gap: .1rem; font-size: .82rem; }
+.history-results span, .history-status { color: var(--muted); }
+.history-status, .history-flag { font-weight: 680; }
+.history-status:not(.is-complete), .history-flag { color: var(--accent); }
+.history-metrics { display: flex; flex-wrap: wrap; margin: 0; gap: .65rem; font-size: .84rem; }
+.history-metrics dd { margin: 0; font-weight: 740; }
+.history-metrics dt { color: var(--muted); }
+.history-compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
+.history-compare-side { overflow-wrap: anywhere; }
+.history-compare-side h3 { font-size: .93rem; }
+.history-comparison .builder-fields { margin: 0; }
+.history-changes { display: grid; gap: .18rem; margin-block: .5rem; }
+.history-editor label { display: grid; gap: .25rem; }
+.history-editor label.builder-check { display: flex; }
+.history-editor textarea { width: 100%; padding: .5rem; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: .5rem; font: inherit; }
+.history-set-editor { display: grid; gap: .45rem; margin-block: .55rem; }
+.history-trend svg { width: 100%; max-height: 105px; color: var(--accent); }
 .log-timing { font-size: .83rem; color: var(--muted); }
 .log-quick button, .log-dock button { min-height: 44px; padding: .45rem .65rem; font-size: .78rem; }
 .log-dock { position: sticky; bottom: -.05rem; z-index: 1; display: grid; gap: .28rem; padding: .45rem;

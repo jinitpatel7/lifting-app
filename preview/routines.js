@@ -1,6 +1,7 @@
 import { isDay, kilogramsPerPound, localDayKey } from './storage.js';
 import { applyWorkoutChange, reconcileLog, repeatLog, routineFromLog, sessionPlan, variantKey, workoutLog } from './workout-log.js';
 import { applyScheduleChange, scheduleEntry, scheduleVersion } from './schedule.js';
+import { invalidateHistoryPredictions, saveHistoryEntry } from './history.js';
 export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
@@ -140,7 +141,9 @@ export function createRoutineStore(storage) {
 
   function save(change) {
     const data = load();
+    const before = data.predictions?.length ? structuredClone(data.sessions) : [];
     change(data);
+    if (data.predictions?.length) data.predictions = invalidateHistoryPredictions(before, data.sessions, data.predictions);
     storage.setItem(storageKey, JSON.stringify(data));
     return data;
   }
@@ -223,6 +226,9 @@ export function createRoutineStore(storage) {
     },
     changeSchedule(change, today) {
       return save(data => applyScheduleChange(data, change, today));
+    },
+    saveHistory(draft, now) {
+      return save(data => saveHistoryEntry(data, draft, now));
     },
     startScheduled(id, date, now = new Date()) {
       return save(data => {

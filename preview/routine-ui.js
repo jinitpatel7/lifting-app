@@ -1,5 +1,5 @@
 import { escapeHTML as html, filterExercises } from './exercises.js';
-import { hasReps, measurements, newest, sessionPlan } from './routines.js';
+import { hasReps, measurements, newest } from './routines.js';
 import { kilogramsPerPound } from './storage.js';
 
 const button = (label, action, value, style = 'secondary') => `<button type="button" class="${style}" data-action="${action}"${value ? ` data-value="${html(value)}"` : ''}>${html(label)}</button>`;
@@ -156,12 +156,4 @@ export function renderPersonalRoutines(data, categoryID, unit, active, entry) {
 export function renderVersions(routine, unit) {
   return `<div class="stack">${routine.versions.slice().reverse().map(version => `<details>
     <summary>Version ${version.revision} · ${html(version.name)}</summary>${renderPlan(version, unit)}</details>`).join('')}</div>`;
-}
-
-export function renderCompletedSessions(sessions, unit, active, date, renderLogged) {
-  return `<div class="stack session-list">${sessions.filter(session => session.completedAt).slice().reverse().map(session => {
-    const plan = sessionPlan(session);
-    return `<article class="surface settings-card saved-routine"><h2>${html(plan.name)}</h2><p class="builder-hint">${html(date(session))} · ${session.results.length} recorded sets${session.endedEarly ? ' · Ended early' : ''}</p>
-      ${session.log ? renderLogged(session, unit) : renderPlan(plan, unit)}${active ? '' : button('Repeat workout', 'plan-repeat', session.id)}</article>`;
-  }).join('') || '<section class="surface settings-card"><h2>No completed workouts</h2><p class="builder-hint">Finished workouts will appear here.</p></section>'}</div>`;
 }

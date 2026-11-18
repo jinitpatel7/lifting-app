@@ -3,12 +3,14 @@ import { createExerciseStore, escapeHTML, exerciseEditor, readExerciseForm, rend
   renderSearchResults, renderSubstitutions, renderSubstitutionResults } from './exercises.js';
 import { muscleInvolvement, renderMuscleMap } from './muscle-map.js';
 import { blankSet, createRoutineStore, draftExercise, makeDraft, newGroup, newest, reorder, sessionPlan } from './routines.js';
-import { exerciseOptions, renderCompletedSessions, renderPersonalRoutines, renderPlan, renderRoutineBuilder, renderVersions } from './routine-ui.js';
-import { renderLoggedHistory, renderWorkout, updateWorkoutFields, workoutStep } from './workout-ui.js';
+import { exerciseOptions, renderPersonalRoutines, renderPlan, renderRoutineBuilder, renderVersions } from './routine-ui.js';
+import { renderWorkout, updateWorkoutFields, workoutStep } from './workout-ui.js';
 import { clockText, restRemaining, workoutTimes } from './workout-tools.js';
 import { loadKey } from './workout-log.js';
 import { offsetDay, recentMuscles, scheduleEntries, scheduleWindow, statusLabels } from './schedule.js';
 import { readinessFields, renderMove, renderProgramWeek, renderReadiness, renderSchedulePlanner, rotationSteps, scheduleSummary } from './schedule-ui.js';
+import { comparisonScopes, dayOf, historyDraft, newHistorySet, priorComparable, sessionsByDate } from './history.js';
+import { calendarMonth, renderComparison, renderFinishSummary, renderHistoryEditor, renderHistoryFilters, renderHistorySessions, renderProgress } from './history-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -71,6 +73,7 @@ const state = {
   preview: readStorage(store.loadSample, { weights: {}, active: null }),
   sampleMode: false,
   date: localDayKey(), routine: null, history: 'progress', expanded: new Set(),
+  historyView: { layout: 'list', day: localDayKey(), month: localDayKey(), filters: {} },
   libraryOpen: false, exerciseDetail: null, substituteFor: null, availableEquipment: new Set(),
   exerciseQuery: newExerciseQuery(), exercises: readStorage(exerciseStore.load, { custom: [], preferences: {} }),
   muscleRegion: '', muscleView: 'planned', calendarAnchor: null,
@@ -314,10 +317,6 @@ function readinessCard() {
     ${state.date <= today() ? `<button type="button" class="secondary" data-action="schedule-readiness">${entry ? 'Edit check-in' : 'Log readiness'}</button>` : ''}</section>`;
 }
 
-function emptyCard(title, copy, symbol) {
-  return `<section class="surface settings-card"><div class="section-label"><span class="tile-icon small">${icon(symbol, 19)}</span><h2>${title}</h2></div><p class="chart-subtitle">${copy}</p></section>`;
-}
-
 function routinesPage() {
   if (state.libraryOpen) return exerciseLibraryPage();
   if (state.builder) return renderRoutineBuilder(state.builder, state.planRecords, catalog, state.exercises, state.unit);
@@ -352,8 +351,7 @@ function historyPage() {
   const picker = `<div class="history-switch">${segment('history', [['progress', 'Progress'], ['sessions', 'Sessions']], state.history)}</div>`;
   const progress = state.history === 'progress';
   if (!state.sampleMode) {
-    if (!progress) return heading + picker + renderCompletedSessions(state.planRecords.sessions, state.unit, activePersonal(),
-      session => shortDate(session.localDate ?? localDayKey(new Date(session.startedAt))), renderLoggedHistory);
+    if (!progress) return heading + picker + renderHistorySessions(state.planRecords, state.historyView, state.unit, activePersonal(), dateLabel);
     const bodyweight = Object.values(state.user.entries).sort((a, b) => b.day.localeCompare(a.day));
     const entries = bodyweight.length ? `
       <section class="surface settings-card" aria-labelledby="bodyweight-history">
@@ -362,7 +360,8 @@ function historyPage() {
           <li><time datetime="${entry.day}">${dateLabel(entry.day, { year: 'numeric', month: 'short', day: 'numeric' })}</time>
           <strong>${displayWeight(entry.kilograms)} ${state.unit}</strong></li>`).join('')}</ul>
       </section>` : '';
-    return heading + picker + `<div class="stack session-list">${emptyCard('Recorded sets', 'Results from completed workouts will appear here.', 'history')}${entries}</div>`;
+    return heading + picker + `<div class="stack session-list">${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
+      ${renderProgress(state.planRecords.sessions, state.historyView.filters, state.unit)}${entries}</div>`;
   }
   const content = progress ? chart() : `<section class="stack session-list" aria-label="Sample sessions">${sample.history.map(entry => `<article class="surface session"><span class="tile-icon">${icon('dumbbell', 21)}</span><div><h2>${routineFor(entry.routineID).name}</h2><p>${entry.sets} sets · ${entry.minutes} min</p></div><span class="meta">${shortDate(entry.date)}</span></article>`).join('')}</section>`;
   return heading + picker + content;
@@ -433,6 +432,121 @@ function showWeight(trigger) {
 }
 
 let rotationDraft = [];
+let historyEdit = null;
+let historyComparison = null;
+
+function openHistoryEditor(trigger) {
+  const expanded = new Set([...dialog.querySelectorAll('[data-history-disclosure][open]')].map(item => item.dataset.historyDisclosure));
+  const scroll = dialog.scrollTop;
+  showDialog('history-edit', historyEdit.sessionID ? 'Edit workout' : 'Add missed workout',
+    renderHistoryEditor(historyEdit, state.planRecords, libraryItems()), trigger);
+  for (const item of dialog.querySelectorAll('[data-history-disclosure]')) item.open = expanded.has(item.dataset.historyDisclosure);
+  dialog.scrollTop = scroll;
+}
+
+function openHistoryComparison(trigger) {
+  const selected = personalSession(historyComparison.id);
+  const candidates = sessionsByDate(state.planRecords.sessions).filter(other =>
+    other.id !== selected.id && other.completedAt && comparisonScopes(selected, other).length);
+  showDialog('history-compare', 'Compare sessions',
+    renderComparison(selected, candidates, historyComparison.other, historyComparison.scope, state.unit), trigger);
+}
+
+function handleHistoryAction(action, value, target, focus) {
+  const view = state.historyView;
+  const trigger = dialogTrigger ?? focus;
+  const editRow = target.closest('[data-history-exercise]');
+  const exercise = historyEdit?.exercises.find(item => item.row.id === (editRow?.dataset.historyExercise ?? value));
+  try {
+    switch (action) {
+      case 'history-layout':
+        view.layout = value;
+        return render({ focus });
+      case 'history-day':
+        view.day = value;
+        return render({ focus });
+      case 'history-month':
+        view.month = calendarMonth(view.month, Number(value));
+        view.day = view.month;
+        return render({ focus });
+      case 'history-clear':
+        view.filters = {};
+        return render();
+      case 'history-add': {
+        const day = view.layout === 'calendar' && view.day < localDayKey() ? view.day : localDayKey();
+        historyEdit = historyDraft(null, null, day, state.unit);
+        const now = new Date();
+        if (day === localDayKey() && now.getHours() < 9) historyEdit.start = [now.getHours(), now.getMinutes()].map(value => String(value).padStart(2, '0')).join(':');
+        return openHistoryEditor(focus);
+      }
+      case 'history-edit':
+        historyEdit = historyDraft(personalSession(value), null, view.day, state.unit);
+        return openHistoryEditor(focus);
+      case 'history-add-set':
+        exercise.sets.push(newHistorySet(state.unit));
+        return openHistoryEditor(trigger);
+      case 'history-remove-set':
+        exercise.sets = exercise.sets.filter(set => set.id !== value);
+        return openHistoryEditor(trigger);
+      case 'history-add-exercise': {
+        const read = id => dialog.querySelector('#history-' + id).value;
+        const selected = libraryExercise(read('exercise-choice'));
+        if (!selected) throw new Error('Choose an exercise to add.');
+        const row = draftExercise(selected);
+        Object.assign(row, { measurement: read('measurement'), counting: read('counting'), basis: read('basis'),
+          equipmentLabel: read('equipment').trim(), work: [] });
+        if (row.basis === 'perDumbbell' && selected.equipment !== 'dumbbell') throw new Error('Choose a dumbbell exercise for per-dumbbell load.');
+        if (row.measurement === 'setting' && !row.equipmentLabel) throw new Error('Enter the machine name for a machine setting.');
+        historyEdit.exercises.push({ row, notes: '', sets: [newHistorySet(state.unit)] });
+        return openHistoryEditor(trigger);
+      }
+      case 'history-save': {
+        const editing = Boolean(historyEdit.sessionID);
+        state.planRecords = routineStore.saveHistory(historyEdit);
+        const session = editing ? personalSession(historyEdit.sessionID) : state.planRecords.sessions.at(-1);
+        if (view.layout === 'calendar') { view.day = dayOf(session); view.month = view.day; }
+        dialog.close();
+        render();
+        return announce(editing ? 'Workout corrections saved.' : 'Missed workout added.');
+      }
+      case 'history-compare': {
+        const selected = personalSession(value);
+        const prior = priorComparable(selected, state.planRecords.sessions);
+        historyComparison = { id: value, other: prior?.other.id, scope: prior?.exerciseID };
+        return openHistoryComparison(focus);
+      }
+      case 'history-view-finished': {
+        const selected = personalSession(value);
+        view.layout = 'calendar';
+        view.day = dayOf(selected);
+        view.month = view.day;
+        view.filters = {};
+        state.history = 'sessions';
+        dialogTrigger = null;
+        dialog.close();
+        return selectTab('history', true);
+      }
+    }
+  } catch (error) {
+    const inline = dialog.querySelector('#history-error');
+    if (inline) { inline.textContent = error.message; inline.scrollIntoView({ block: 'nearest' }); }
+    else planError(error, focus);
+  }
+}
+
+function historyEditInput(target) {
+  const read = target.type === 'checkbox' ? target.checked : target.value;
+  const draftField = target.dataset.historyDraft;
+  if (draftField && draftField !== 'versionID') historyEdit[draftField] = read;
+  const exercise = historyEdit.exercises.find(item => item.row.id === target.closest('[data-history-exercise]')?.dataset.historyExercise);
+  if (!exercise) return;
+  if (target.hasAttribute('data-history-exercise-note')) exercise.notes = read;
+  const setID = target.closest('[data-history-set]')?.dataset.historySet;
+  const set = exercise.sets.find(item => item.id === setID);
+  if (!set) return;
+  if (target.dataset.historyInput) set.input[target.dataset.historyInput] = read;
+  if (target.dataset.historySetField) set[target.dataset.historySetField] = read;
+}
 
 function openSchedule(trigger, section = '') {
   showDialog('schedule-planner', 'Training schedule', renderSchedulePlanner(state.planRecords, today(), state.date, rotationDraft, section), trigger);
@@ -641,9 +755,9 @@ function refreshWorkout() {
 
 function finishLogger(id, early) {
   state.planRecords = routineStore.finish(id, early);
-  dialogTrigger = null;
-  dialog.close();
-  render({ focus: '.active-bar' });
+  render();
+  const session = personalSession(id);
+  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit), '.active-bar');
   announce(early ? 'Workout saved as ended early.' : 'Workout finished.');
 }
 
@@ -946,6 +1060,10 @@ main.addEventListener('input', event => {
 
 main.addEventListener('change', event => {
   const target = event.target;
+  if (target.hasAttribute('data-history-filter')) {
+    state.historyView.filters[target.dataset.historyFilter] = target.value;
+    return render({ focus: `[data-history-filter="${target.dataset.historyFilter}"]` });
+  }
   if (target.id === 'routine-category-filter') {
     state.routineCategory = target.value;
     render({ focus: '#routine-category-filter' });
@@ -1077,6 +1195,10 @@ document.addEventListener('click', event => {
     handleScheduleAction(action, value, target, focus);
     return;
   }
+  if (action.startsWith('history-')) {
+    handleHistoryAction(action, value, target, focus);
+    return;
+  }
   switch (action) {
     case 'theme': state.appearance = theme() === 'dark' ? 'light' : 'dark'; savePreferences(); render({ focus }); break;
     case 'appearance': state.appearance = value; savePreferences(); render({ focus }); break;
@@ -1156,11 +1278,37 @@ dialog.addEventListener('close', () => {
   dialogAction = null;
   dialogTrigger = null;
   exerciseDraft = null;
+  historyEdit = null;
+  historyComparison = null;
   if (wasWorkout && activePersonal() && state.tab === 'today') render();
   if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
 });
 dialog.addEventListener('change', event => {
   const field = event.target;
+  if (dialogAction === 'history-edit') {
+    if (field.dataset.historyDraft === 'versionID') {
+      const base = historyDraft(null, personalVersion(field.value), historyEdit.day, state.unit);
+      historyEdit = { ...historyEdit, versionID: field.value, exercises: base.exercises };
+      openHistoryEditor(dialogTrigger);
+    } else if (field.dataset.historySetField === 'status' || field.dataset.historyInput === 'separateSides') {
+      historyEditInput(field);
+      const id = field.closest('[data-history-set]').dataset.historySet;
+      openHistoryEditor(dialogTrigger);
+      const row = [...dialog.querySelectorAll('[data-history-set]')].find(item => item.dataset.historySet === id);
+      row?.querySelector(field.dataset.historySetField ? '[data-history-set-field]' : '[data-history-input="separateSides"]')?.focus({ preventScroll: true });
+    } else if (field.id === 'history-exercise-choice') {
+      const selected = libraryExercise(field.value);
+      if (selected) dialog.querySelector('#history-measurement').value = selected.equipment ? 'weight' : 'bodyweight';
+    }
+    return;
+  }
+  if (dialogAction === 'history-compare') {
+    if (field.id === 'history-other') { historyComparison.other = field.value; historyComparison.scope = ''; }
+    if (field.id === 'history-scope') historyComparison.scope = field.value;
+    openHistoryComparison(dialogTrigger);
+    dialog.querySelector('#' + field.id)?.focus();
+    return;
+  }
   if (dialogAction === 'schedule-program' && field.id === 'schedule-block-week') {
     openProgram(field.closest('.schedule-program').dataset.blockId, Number(field.value), dialogTrigger);
     dialog.querySelector('#schedule-block-week').focus();
@@ -1184,6 +1332,10 @@ dialog.addEventListener('change', event => {
 });
 
 dialog.addEventListener('input', event => {
+  if (dialogAction === 'history-edit' && historyEdit) {
+    historyEditInput(event.target);
+    return;
+  }
   if (dialogAction !== 'personal-workout') return;
   const target = event.target;
   if (target.id === 'log-exercise-search') {

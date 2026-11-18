@@ -197,19 +197,3 @@ export function renderWorkout(session, database, catalog, exercises, unit) {
     </aside>
   </div>`;
 }
-
-export function renderLoggedHistory(session, unit) {
-  const plan = sessionPlan(session);
-  const timing = workoutTimes(session, session.completedAt);
-  return `<div class="saved-plan"><p>Elapsed ${clockText(timing.elapsed)} · Active ${clockText(timing.active)} · Paused ${clockText(timing.paused)}</p>${session.log.notes ? `<p>${html(session.log.notes)}</p>` : ''}
-    ${session.log.exercises.map(exercise => {
-      const row = plan.exercises.find(item => item.id === exercise.id);
-      if (!row) return '';
-      return `<div><strong>${html(row.exercise.name)}</strong>${exercise.notes ? `<small>${html(exercise.notes)}</small>` : ''}
-        ${exercise.sets.map(set => {
-          const completed = session.results.find(item => item.id === set.id);
-          return `<small>${set.purpose === 'warm-up' ? 'Warm-up' : 'Working'} · ${completed ? `Completed · ${html(resultSummary(completed, row, unit))}`
-            : set.status === 'skipped' ? 'Skipped' : 'Unfinished'}${completed && restDetails(completed) ? ' · ' + html(restDetails(completed)) : ''}</small>`;
-        }).join('')}</div>`;
-    }).join('')}</div>`;
-}

@@ -185,7 +185,7 @@ final class TrainingRepository {
         }
     }
 
-    private func exercise(_ id: UUID) -> Exercise? {
+    func exercise(_ id: UUID) -> Exercise? {
         records.exercises.first { $0.id == id } ?? catalog.first { $0.id == id }
     }
 
@@ -504,6 +504,7 @@ final class TrainingRepository {
     func commit(_ update: (inout TrainingRecords) -> Void) throws {
         var next = records
         update(&next)
+        next.invalidateHistoryPredictions(comparedTo: records)
         try files.saveUserData(next)
         records = next
     }

@@ -27,6 +27,7 @@ struct ScheduleWorkoutSheet: View {
 struct WorkoutLogger: View {
     let model: TrainingModel
     let unit: WeightUnit
+    let finished: (UUID) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var adding = false
     @State private var editing = false
@@ -59,7 +60,12 @@ struct WorkoutLogger: View {
                 .navigationTitle(session.plan.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-                .sheet(isPresented: $adding) { LoggingExercisePicker(model: model, sessionID: session.id) }
+                .sheet(isPresented: $adding) {
+                    LoggingExercisePicker(model: model) { exercise, measurement, equipment in
+                        model.logChange(session.id, .addExercise(exercise, measurement, equipment))
+                        return model.storageError == nil
+                    }
+                }
                 .sheet(isPresented: $editing) { RoutineEditor(model: model, unit: unit, original: session.plan, sessionID: session.id) }
                 .sheet(item: $gearEntry) { entry in
                     WorkoutGearSheet(entry: entry, profile: session.workoutLog?.loadProfiles?[entry.variant.loggingEquipmentKey], unit: unit) { profile in
@@ -403,7 +409,8 @@ struct WorkoutLogger: View {
         let index = exercise.rows.filter { $0.purpose == row.purpose }.firstIndex { $0.id == row.id } ?? 0
         let historical = model.records.sessions.filter { $0.completedAt != nil }.sorted { $0.startedAt > $1.startedAt }
         let reference = historical.first { $0.id == session.referenceSessionID }
-        for prior in (reference.map { [$0] } ?? []) + historical.filter({ $0.id != session.referenceSessionID }) {
+        let older = historical.filter { $0.id != session.referenceSessionID && $0.startedAt <= session.startedAt }
+        for prior in (reference.map { [$0] } ?? []) + older {
             let entries = prior.plan.exercises.filter { $0.variant.key == entry.variant.key }
             let matching = entries.first { $0.id == entry.id } ?? entries.first
             if let previousExercise = prior.workoutLog?.exercises.first(where: { $0.id == matching?.id }) {
@@ -427,10 +434,10 @@ struct WorkoutLogger: View {
         if hasResults { deletion = action } else { change(session, action) }
     }
 
-    private func finish(_ id: UUID, early: Bool) { if model.finishSession(id, early: early) { dismiss() } }
+    private func finish(_ id: UUID, early: Bool) { if model.finishSession(id, early: early) { finished(id) } }
 }
 
-private extension Measurement {
+extension Measurement {
     var isMachineSetting: Bool { if case .machineSetting = self { true } else { false } }
     var isPhysicalLoad: Bool {
         switch self {
@@ -601,9 +608,9 @@ private struct EditWorkoutRestSheet: View {
     }
 }
 
-private struct LoggingExercisePicker: View {
+struct LoggingExercisePicker: View {
     let model: TrainingModel
-    let sessionID: UUID
+    let add: (Exercise, Measurement, Equipment?) -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
 
@@ -612,7 +619,9 @@ private struct LoggingExercisePicker: View {
             List {
                 ForEach(ExerciseLibraryQuery(name: search).results(catalog: model.catalog, custom: model.records.exercises,
                     preferences: model.records.exercisePreferences ?? [:])) { exercise in
-                    NavigationLink(exercise.name) { LoggingExerciseSetup(model: model, sessionID: sessionID, exercise: exercise, close: { dismiss() }) }
+                    NavigationLink(exercise.name) {
+                        LoggingExerciseSetup(model: model, exercise: exercise, add: add, close: { dismiss() })
+                    }
                 }
             }
             .searchable(text: $search, prompt: "Search exercises")
@@ -624,8 +633,8 @@ private struct LoggingExercisePicker: View {
 
 private struct LoggingExerciseSetup: View {
     let model: TrainingModel
-    let sessionID: UUID
     let exercise: Exercise
+    let add: (Exercise, Measurement, Equipment?) -> Bool
     let close: () -> Void
     @State private var choice = MeasurementChoice.weight
     @State private var counting = RepCounting.total
@@ -653,9 +662,8 @@ private struct LoggingExerciseSetup: View {
                 ForEach(model.records.equipment) { Text($0.name).tag(Optional($0.id)) }
             }
             Button("Add to workout") {
-                model.logChange(sessionID, .addExercise(exercise, choice.measurement(basis: basis, reps: counting),
-                    model.records.equipment.first { $0.id == equipmentID }))
-                if model.storageError == nil { close() }
+                let measurement = choice.measurement(basis: basis, reps: counting)
+                if add(exercise, measurement, model.records.equipment.first { $0.id == equipmentID }) { close() }
             }
             if let error = model.storageError { Text(error).foregroundStyle(Palette.red) }
         }

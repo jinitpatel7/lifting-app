@@ -285,6 +285,7 @@ struct WorkoutSession: Codable, Equatable, Identifiable {
     var workoutLog: WorkoutLog? = nil
     var endedEarly: Bool? = nil
     var routineUpdateBaseID: UUID? = nil
+    var manualDurationKnown: Bool? = nil
 
     var plan: RoutineVersion { sessionPlan ?? routineSnapshot }
 }

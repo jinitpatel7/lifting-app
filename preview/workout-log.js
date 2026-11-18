@@ -3,7 +3,7 @@ import { closeRest, openRest, parsePlates, plateOptions, workoutTimes } from './
 
 const uuid = () => crypto.randomUUID();
 export const sessionPlan = session => session.override ?? session.snapshot;
-export const variantKey = row => row && JSON.stringify([row.exercise.id, row.measurement, row.equipmentLabel, row.basis, row.counting]);
+export const variantKey = row => row && JSON.stringify([row.exercise.id, row.exercise.equipment ?? '', row.measurement, row.equipmentLabel, row.basis, row.counting]);
 const hasReps = row => !['duration', 'distance'].includes(row.measurement);
 const loadKinds = ['weight', 'added', 'assistance'];
 const blank = (purpose = 'working', plan = null) => ({ id: uuid(), purpose, plan, status: 'pending', input: null });
@@ -62,7 +62,7 @@ function actualAmount(input, row) {
   return { kind: row.measurement, value };
 }
 
-function completedResult(input, row, set, now) {
+export function performedResult(input, row, set, now) {
   const amount = actualAmount(input, row);
   const sided = hasReps(row) && (row.counting === 'separateSides' || (row.counting === 'perSide' && input.separateSides));
   const sidedTimeOrDistance = !hasReps(row) && input.separateSides;
@@ -212,7 +212,7 @@ export function applyWorkoutChange(session, change, unit, now = new Date().toISO
             break;
           case 'complete': {
             const input = sessionInput(set, unit);
-            const result = completedResult(input, row, set, now);
+            const result = performedResult(input, row, set, now);
             closeRest(session, log, now, 'nextSet');
             session.results.push(result);
             set.input = input;
@@ -297,9 +297,11 @@ export function routineFromLog(session) {
 
 export function previousResult(session, history, row, set, exercise) {
   const index = exercise.sets.filter(item => item.purpose === set.purpose).indexOf(set);
-  const completed = history.filter(item => item.completedAt).slice().reverse();
+  const completed = history.filter(item => item.completedAt)
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
   const reference = completed.find(item => item.id === session.referenceID);
-  for (const item of [...(reference ? [reference] : []), ...completed.filter(item => item !== reference)]) {
+  const older = completed.filter(item => item !== reference && (!session.startedAt || item.startedAt <= session.startedAt));
+  for (const item of [...(reference ? [reference] : []), ...older]) {
     const matches = sessionPlan(item).exercises.filter(candidate => variantKey(candidate) === variantKey(row));
     const match = matches.find(candidate => candidate.id === row.id) ?? matches[0];
     const previous = item.log?.exercises.find(exercise => exercise.id === match?.id);
