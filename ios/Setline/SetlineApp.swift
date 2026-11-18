@@ -36,6 +36,7 @@ private enum ActiveSheet: Identifiable {
     case bodyweight(String), workout, exerciseLibrary(MuscleGroup?)
     case routineEditor(RoutineVersion?), routineHistory(UUID), schedule(RoutineVersion)
     case schedulePlanner, moveScheduled(ScheduleOccurrence), readiness(WorkoutDate)
+    case progression(UUID)
 
     var id: String {
         switch self {
@@ -48,6 +49,7 @@ private enum ActiveSheet: Identifiable {
         case .schedulePlanner: "schedule-planner"
         case .moveScheduled(let slot): "move-\(slot.id)"
         case .readiness(let day): "readiness-\(day.key)"
+        case .progression(let id): "progression-\(id.uuidString)"
         }
     }
 }
@@ -114,6 +116,8 @@ struct SetlineRoot: View {
                 ScheduleMoveSheet(model: model, slot: slot)
             case .readiness(let day):
                 ReadinessSheet(model: model, day: day)
+            case .progression(let id):
+                ProgressionSheet(model: model, unit: unit, routineID: id)
             }
         }
         .alert("Local storage", isPresented: Binding(
@@ -136,7 +140,8 @@ struct SetlineRoot: View {
                 PersonalTodayScreen(records: model.records, unit: unit, browse: { tab = .routines },
                                     start: startScheduled, startEmpty: { if model.startEmptyWorkout() { sheet = .workout } },
                                     editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, openSchedule: { sheet = .schedulePlanner },
-                                    move: { sheet = .moveScheduled($0) }, skip: skipScheduled, logReadiness: { sheet = .readiness($0) }, selectedDay: $day)
+                                    move: { sheet = .moveScheduled($0) }, skip: skipScheduled, logReadiness: { sheet = .readiness($0) },
+                                    reviewProgression: { sheet = .progression($0) }, selectedDay: $day)
             }
         case .routines:
             if showsSample, let sample = model.sample {
@@ -146,7 +151,7 @@ struct SetlineRoot: View {
                 PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession,
                     browseLibrary: { sheet = .exerciseLibrary(nil) }, edit: { sheet = .routineEditor($0) },
                     duplicate: { _ = model.duplicateRoutine($0) }, versionHistory: { sheet = .routineHistory($0) },
-                    schedule: { sheet = .schedule($0) })
+                    schedule: { sheet = .schedule($0) }, reviewProgression: { sheet = .progression($0) })
             }
         case .history:
             if showsSample, let sample = model.sample {

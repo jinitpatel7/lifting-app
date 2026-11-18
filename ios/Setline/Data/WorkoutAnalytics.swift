@@ -90,7 +90,7 @@ enum WorkoutAnalytics {
     static let formulaHelp = "Epley uses load × (1 + reps ÷ 30) for 2–10 reps. A single uses its recorded load. Setline estimates only bilateral free-weight working sets. The estimate assumes a hard set and varies with effort, technique, and exercise."
     static let study = URL(string: "https://efyc.fahce.unlp.edu.ar/article/download/efyce222/15809?inline=1")
 
-    private struct ProgramContext {
+    struct ProgramContext {
         var id: UUID?
         var name = ""
         var week = -1
@@ -207,13 +207,21 @@ enum WorkoutAnalytics {
         return result
     }
 
-    private static func context(_ session: WorkoutSession, records: TrainingRecords) -> ProgramContext {
+    static func context(_ session: WorkoutSession, records: TrainingRecords) -> ProgramContext {
         let entry = records.schedule.first { $0.id == session.scheduleID }
-        let fallback = records.programBlocks.filter { $0.firstDay <= session.localDate && session.localDate <= $0.lastDay }
+        return context(on: session.localDate, entry: entry, records: records)
+    }
+
+    static func context(for occurrence: ScheduleOccurrence, records: TrainingRecords) -> ProgramContext {
+        context(on: occurrence.date, entry: occurrence.record, records: records)
+    }
+
+    private static func context(on date: WorkoutDate, entry: ScheduledWorkout?, records: TrainingRecords) -> ProgramContext {
+        let fallback = records.programBlocks.filter { $0.firstDay <= date && date <= $0.lastDay }
         guard let block = records.programBlocks.first(where: { $0.id == entry?.programBlockID }) ?? (fallback.count == 1 ? fallback.first : nil) else {
             return ProgramContext()
         }
-        let day = entry?.programBlockID == block.id ? (entry?.movedFrom?.first ?? entry?.localDate ?? session.localDate) : session.localDate
+        let day = entry?.programBlockID == block.id ? (entry?.movedFrom?.first ?? entry?.localDate ?? date) : date
         let week = block.weekIndex(for: day)
         return ProgramContext(id: block.id, name: block.name, week: week, kind: block.weeks?[week]?.kind ?? .training)
     }

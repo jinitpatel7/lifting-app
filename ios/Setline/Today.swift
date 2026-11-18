@@ -261,7 +261,7 @@ struct ExerciseCard: View {
             let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
             layout {
                 metric("Previous best set", value: exercise.previous.map { "\(unit.display($0.weightKg)) \(unit.rawValue) × \($0.reps)" } ?? "—")
-                metric("Future prediction", value: "Coming later", prediction: true)
+                metric("Progression", value: "Personal workouts only", prediction: true)
             }
             if expanded {
                 Divider()

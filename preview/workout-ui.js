@@ -73,9 +73,9 @@ function quickSteps(row, profile, sided) {
     ${sided && hasReps(row.measurement) ? pair('Right reps', 'rightReps') : ''}</div>`;
 }
 
-export function resultSummary(result, row, unit) {
-  const load = amount(result.amount, unit);
-  const right = amount(result.rightAmount, unit);
+export function resultSummary(result, row, unit, precision) {
+  const load = amount(result.amount, unit, precision);
+  const right = amount(result.rightAmount, unit, precision);
   const reps = result.rightReps != null ? `${result.reps} left / ${result.rightReps} right`
     : result.reps == null ? '' : `${result.reps} reps${row.counting === 'perSide' ? ' per side' : ''}`;
   return [right ? `${load} left / ${right} right` : load && `${load}${row.basis === 'perDumbbell' && row.measurement === 'weight' ? ' per dumbbell' : ''}`, reps,

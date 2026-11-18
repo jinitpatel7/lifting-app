@@ -36,6 +36,8 @@
 		100000000000000000000128 /* BodyweightProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000229 /* BodyweightProgress.swift */; };
 		100000000000000000000129 /* BodyweightScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000230 /* BodyweightScreen.swift */; };
 		100000000000000000000130 /* ProgressPhotos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000231 /* ProgressPhotos.swift */; };
+		100000000000000000000131 /* ExerciseProgression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000233 /* ExerciseProgression.swift */; };
+		100000000000000000000132 /* ProgressionScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000234 /* ProgressionScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -71,6 +73,8 @@
 		100000000000000000000230 /* BodyweightScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyweightScreen.swift; sourceTree = "<group>"; };
 		100000000000000000000231 /* ProgressPhotos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressPhotos.swift; sourceTree = "<group>"; };
 		100000000000000000000232 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		100000000000000000000233 /* ExerciseProgression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ExerciseProgression.swift; path = Data/ExerciseProgression.swift; sourceTree = "<group>"; };
+		100000000000000000000234 /* ProgressionScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressionScreen.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -116,6 +120,8 @@
 				100000000000000000000230 /* BodyweightScreen.swift */,
 				100000000000000000000231 /* ProgressPhotos.swift */,
 				100000000000000000000232 /* Info.plist */,
+				100000000000000000000233 /* ExerciseProgression.swift */,
+				100000000000000000000234 /* ProgressionScreen.swift */,
 				100000000000000000000403 /* Resources */,
 			);
 			path = Setline;
@@ -226,6 +232,8 @@
 				100000000000000000000128 /* BodyweightProgress.swift in Sources */,
 				100000000000000000000129 /* BodyweightScreen.swift in Sources */,
 				100000000000000000000130 /* ProgressPhotos.swift in Sources */,
+				100000000000000000000131 /* ExerciseProgression.swift in Sources */,
+				100000000000000000000132 /* ProgressionScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

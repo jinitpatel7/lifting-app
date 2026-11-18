@@ -19,6 +19,7 @@ struct TrainingRecords: Codable, Equatable {
     var rotations: [RoutineRotation]? = nil
     var analyticsSettings: AnalyticsSettings? = nil
     var bodyweightTargetKgPerWeek: Double? = nil
+    var progressionRules: [ExerciseProgressionRule]? = nil
 
     var activeSession: WorkoutSession? { sessions.first { $0.completedAt == nil } }
     var currentRoutines: [RoutineVersion] {
@@ -193,18 +194,19 @@ final class TrainingRepository {
 
     @discardableResult
     func saveRoutine(id: UUID = UUID(), name: String, exercises: [PlannedExercise], categoryID: UUID? = nil,
-                     groups: [RoutineGroup] = [], expectedVersionID: UUID? = nil, at date: Date = Date()) throws -> RoutineVersion {
+                     groups: [RoutineGroup] = [], expectedVersionID: UUID? = nil, at date: Date = Date(),
+                     preserveCurrentSnapshots: Bool = false) throws -> RoutineVersion {
         try requireName(name)
         if let categoryID, records.routineCategories?.contains(where: { $0.id == categoryID }) != true {
             throw TrainingDataError.unknownRecord("Choose a saved routine category.")
         }
-        let snapshots = try snapshots(for: exercises)
-        let normalized = try RoutineGroup.normalized(groups, exercises: snapshots)
         let index = records.routines.firstIndex { $0.id == id }
         let current = index.flatMap { records.version(records.routines[$0].currentVersionID) }
         if let expectedVersionID, expectedVersionID != current?.id {
             throw TrainingDataError.conflictingRecord("This routine changed. Reopen it before saving an edit.")
         }
+        let snapshots = try snapshots(for: exercises, prior: preserveCurrentSnapshots ? (current?.exercises ?? []) : [])
+        let normalized = try RoutineGroup.normalized(groups, exercises: snapshots)
         if let current, current.name == name, current.exercises == snapshots, current.categoryID == categoryID,
            (current.groups ?? []) == normalized { return current }
         let version = RoutineVersion(routineID: id, revision: (current?.revision ?? 0) + 1, createdAt: date,

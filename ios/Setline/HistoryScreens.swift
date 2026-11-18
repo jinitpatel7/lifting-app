@@ -2,7 +2,7 @@ import SwiftUI
 
 private enum HistorySheet: Identifiable {
     case add(WorkoutDate), edit(UUID), compare(UUID), weight(WorkoutDate)
-    case photos(WorkoutDate, UUID?), comparePhotos(WorkoutDate)
+    case photos(WorkoutDate, UUID?), comparePhotos(WorkoutDate), progression
 
     var id: String {
         switch self {
@@ -12,6 +12,7 @@ private enum HistorySheet: Identifiable {
         case .weight(let day): "weight-\(day.key)"
         case .photos(let day, let session): "photos-\(day.key)-\(session?.uuidString ?? "date")"
         case .comparePhotos(let day): "compare-photos-\(day.key)"
+        case .progression: "progression"
         }
     }
 }
@@ -65,6 +66,8 @@ struct PersonalHistoryScreen: View {
                 ProgressPhotosSheet(model: model, day: date, sessionID: session)
             case .comparePhotos(let date):
                 ProgressPhotoComparisonSheet(model: model, selected: date)
+            case .progression:
+                ProgressionSheet(model: model, unit: unit)
             }
         }
     }
@@ -187,6 +190,9 @@ struct PersonalHistoryScreen: View {
 
     @ViewBuilder private var progress: some View {
         BodyweightProgressCard(model: model, unit: unit) { presented = .weight($0) }
+        PersonalStatus(title: "Exercise progression", symbol: "chart.line.uptrend.xyaxis") {
+            Button("Review progression") { presented = .progression }.buttonStyle(SecondaryButton())
+        }
         AnalyticsProgress(model: model, filter: filter, unit: unit)
     }
 }
@@ -450,6 +456,7 @@ struct HistoryFinishView: View {
     let viewHistory: (WorkoutDate) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var linking = false
+    @State private var progression = false
 
     var body: some View {
         NavigationStack {
@@ -466,6 +473,12 @@ struct HistoryFinishView: View {
                 } else { Text("No prior comparable session.") }
                 Button("Add progress photos") { linking = true }
                     .sheet(isPresented: $linking) { ProgressPhotosSheet(model: model, day: session.localDate, sessionID: session.id) }
+                if !model.records.currentRoutines.isEmpty {
+                    Button("Review progression") { progression = true }.sheet(isPresented: $progression) {
+                        ProgressionSheet(model: model, unit: unit,
+                            routineID: model.records.currentRoutines.first { $0.routineID == session.routineSnapshot.routineID }?.routineID)
+                    }
+                }
                 Button("View in history") { viewHistory(session.localDate) }
             }
             .navigationTitle("Workout summary")

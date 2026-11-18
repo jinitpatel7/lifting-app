@@ -11,12 +11,13 @@ struct RoutineEditor: View {
     @State private var categoryID: UUID?
     @State private var rows: [ExercisePlanDraft]
     @State private var groups: [RoutineGroup]
+    @State private var exercisePath: [UUID]
     @State private var picking = false
     @State private var advanced = false
     @State private var categoryName = ""
     @State private var error: String?
 
-    init(model: TrainingModel, unit: WeightUnit, original: RoutineVersion? = nil, sessionID: UUID? = nil) {
+    init(model: TrainingModel, unit: WeightUnit, original: RoutineVersion? = nil, sessionID: UUID? = nil, focusedExerciseID: UUID? = nil) {
         self.model = model
         self.unit = unit
         self.original = original
@@ -26,10 +27,11 @@ struct RoutineEditor: View {
         _categoryID = State(initialValue: original?.categoryID)
         _rows = State(initialValue: original?.exercises.map { ExercisePlanDraft($0, unit: unit) } ?? [])
         _groups = State(initialValue: original?.groups ?? [])
+        _exercisePath = State(initialValue: focusedExerciseID.map { [$0] } ?? [])
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $exercisePath) {
             List {
                 Section {
                     TextField("Routine name", text: $name).frame(minHeight: 44)
@@ -81,6 +83,11 @@ struct RoutineEditor: View {
                 }
             }
             .navigationTitle(sessionID != nil ? "Edit this workout" : original == nil ? "New routine" : "Edit routine")
+            .navigationDestination(for: UUID.self) { id in
+                if let index = rows.firstIndex(where: { $0.id == id }) {
+                    ExercisePlanEditor(model: model, unit: unit, row: $rows[index])
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

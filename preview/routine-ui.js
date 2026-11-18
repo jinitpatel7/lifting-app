@@ -110,20 +110,20 @@ export function renderRoutineBuilder(builder, records, catalog, exercises, unit)
     ${button(sessionID ? 'Save this workout' : 'Save routine', 'plan-save', null, 'primary')}`;
 }
 
-export function amount(target, unit) {
+export function amount(target, unit, precision = 2) {
   if (!target) return '';
   if (target.kind === 'setting') return `Setting ${target.value}`;
   if (target.kind === 'duration') return `${target.value}s`;
   if (target.kind === 'distance') return `${target.value} m`;
   const value = unit === 'lb' ? target.value / kilogramsPerPound : target.value;
   const suffix = target.kind === 'added' ? ' added' : target.kind === 'assistance' ? ' assistance' : '';
-  return `${Number(value.toFixed(2))} ${unit}${suffix}`;
+  return `${Number(value.toFixed(precision))} ${unit}${suffix}`;
 }
 
-export function setSummary(block, row, unit) {
+export function setSummary(block, row, unit, precision) {
   const range = block.reps && (block.reps.minimum === block.reps.maximum ? block.reps.minimum : `${block.reps.minimum}–${block.reps.maximum}`);
   const counting = { perSide: ' per side', separateSides: ' per side (logged separately)' }[row.counting] ?? '';
-  const load = amount(block.target, unit);
+  const load = amount(block.target, unit, precision);
   const effort = block.effort ? (block.effort.kind === 'failure' ? 'To failure' : `${block.effort.kind.toUpperCase()} ${block.effort.value}`) : '';
   return [range ? `${block.sets} × ${range} reps${counting}` : `${block.sets} sets`, load && `${load}${row.basis === 'perDumbbell' ? ' per dumbbell' : ''}`,
     block.rest === null ? '' : `${block.rest}s rest`, block.structure === 'dropSet' ? 'Drop set' : block.structure === 'restPause' ? 'Rest-pause' : '',
@@ -149,7 +149,7 @@ export function renderPersonalRoutines(data, categoryID, unit, active, entry) {
       <h2>${html(plan.name)}</h2><p class="builder-hint">Version ${plan.revision}${plan.categoryID ? ` · ${html(categories[plan.categoryID])}` : ''}</p>
       ${renderPlan(plan, unit)}
       <div class="builder-actions">${button(active ? 'Resume workout' : 'Log workout', 'plan-start', plan.routineID, 'primary')}
-        ${button('Schedule workout', 'plan-schedule', plan.routineID)}${button('Edit routine', 'plan-edit', plan.routineID)}${button('Duplicate routine', 'plan-duplicate', plan.routineID)}${button('Version history', 'plan-versions', plan.routineID)}</div>
+        ${button('Schedule workout', 'plan-schedule', plan.routineID)}${button('Edit routine', 'plan-edit', plan.routineID)}${button('Duplicate routine', 'plan-duplicate', plan.routineID)}${button('Version history', 'plan-versions', plan.routineID)}${button('Review progression', 'progression-open', plan.routineID)}</div>
     </article>`).join('') || `<section class="surface settings-card"><h2>${categoryID ? 'No routines in this category' : 'No saved routines'}</h2></section>`}</div>`;
 }
 

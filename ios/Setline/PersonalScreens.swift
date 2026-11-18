@@ -12,6 +12,7 @@ struct PersonalTodayScreen: View {
     let move: (ScheduleOccurrence) -> Void
     let skip: (ScheduleOccurrence) -> Void
     let logReadiness: (WorkoutDate) -> Void
+    let reviewProgression: (UUID) -> Void
     @Binding var selectedDay: String?
     @State private var anchor: WorkoutDate?
     @State private var recentView = false
@@ -108,6 +109,10 @@ struct PersonalTodayScreen: View {
                 if !week.notes.isEmpty { Text(week.notes).font(.subheadline) }
             }
             if workout.canChange || workout.status == .active { RoutinePlanRows(version: version, unit: unit) }
+            if workout.canChange, records.currentRoutines.contains(where: { $0.id == version.id }),
+               WorkoutAnalytics.context(for: workout, records: records).kind != .deload {
+                Button("Review progression") { reviewProgression(version.routineID) }.buttonStyle(SecondaryButton())
+            }
             if workout.status == .active || (workout.canChange && (workout.rotationID == nil || workout.date == today)) {
                 Button(records.activeSession == nil ? "Start scheduled workout" : "Resume workout") { start(workout) }.buttonStyle(PrimaryButton())
             }
@@ -146,6 +151,7 @@ struct PersonalRoutinesScreen: View {
     let duplicate: (UUID) -> Void
     let versionHistory: (UUID) -> Void
     let schedule: (RoutineVersion) -> Void
+    let reviewProgression: (UUID) -> Void
     @State private var category: UUID?
 
     var body: some View {
@@ -177,6 +183,7 @@ struct PersonalRoutinesScreen: View {
                     Button("Duplicate routine") { duplicate(version.id) }
                     Button("Version history") { versionHistory(version.routineID) }
                     Button("Schedule workout") { schedule(version) }
+                    Button("Review progression") { reviewProgression(version.routineID) }
                 } label: {
                     Label("Routine options", systemImage: "ellipsis.circle").frame(minHeight: 44)
                 }
@@ -274,14 +281,14 @@ struct PersonalStatus<Content: View>: View {
 }
 
 extension PlannedExercise {
-    func summary(_ prescription: SetPrescription, unit: WeightUnit) -> String {
+    func summary(_ prescription: SetPrescription, unit: WeightUnit, fractionDigits: ClosedRange<Int> = 0...1) -> String {
         let measurement = variant.measurement
         let sets = if let reps = prescription.reps, let counting = measurement.repCounting {
             "\(prescription.sets) × \(reps.label) \(counting.label)"
         } else {
             "\(prescription.sets) sets"
         }
-        let amount = prescription.target?.summary(unit: unit, measurement: measurement)
+        let amount = prescription.target?.summary(unit: unit, measurement: measurement, fractionDigits: fractionDigits)
         let effort: String? = switch prescription.effort {
         case .rpe(let value): "RPE \(value.formatted())"
         case .failure: "To failure"
@@ -300,9 +307,9 @@ extension PerformedSet {
         return values.isEmpty ? nil : values.joined(separator: " · ")
     }
 
-    func summary(unit: WeightUnit, measurement: Measurement) -> String {
-        var load = amount?.summary(unit: unit, measurement: measurement)
-        if let left = load, let right = rightAmount?.summary(unit: unit, measurement: measurement) { load = "\(left) left / \(right) right" }
+    func summary(unit: WeightUnit, measurement: Measurement, fractionDigits: ClosedRange<Int> = 0...1) -> String {
+        var load = amount?.summary(unit: unit, measurement: measurement, fractionDigits: fractionDigits)
+        if let left = load, let right = rightAmount?.summary(unit: unit, measurement: measurement, fractionDigits: fractionDigits) { load = "\(left) left / \(right) right" }
         let reps: String? = switch repetitions {
         case .total(let count): "\(count) reps total"
         case .perSide(let count): "\(count) reps per side"
@@ -327,11 +334,11 @@ extension WorkoutSession {
 }
 
 private extension SetAmount {
-    func summary(unit: WeightUnit, measurement: Measurement) -> String {
+    func summary(unit: WeightUnit, measurement: Measurement, fractionDigits: ClosedRange<Int>) -> String {
         switch self {
-        case .weight(let mass): "\(unit.display(mass.kilograms)) \(unit.rawValue) \(measurement.loadLabel)"
-        case .addedLoad(let mass): "\(unit.display(mass.kilograms)) \(unit.rawValue) added"
-        case .assistance(let mass): "\(unit.display(mass.kilograms)) \(unit.rawValue) assistance"
+        case .weight(let mass): "\(unit.display(mass.kilograms, fractionDigits: fractionDigits)) \(unit.rawValue) \(measurement.loadLabel)"
+        case .addedLoad(let mass): "\(unit.display(mass.kilograms, fractionDigits: fractionDigits)) \(unit.rawValue) added"
+        case .assistance(let mass): "\(unit.display(mass.kilograms, fractionDigits: fractionDigits)) \(unit.rawValue) assistance"
         case .durationSeconds(let seconds): "\(seconds.formatted()) s"
         case .distanceMeters(let meters): "\(meters.formatted()) m"
         case .machineSetting(let setting): "Setting \(setting)"

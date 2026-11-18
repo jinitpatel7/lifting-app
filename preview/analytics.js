@@ -84,7 +84,7 @@ function recordsFor(attempts) {
   return { heaviest, byLoad: [...byLoad.values()].sort((a, b) => b.load - a.load), byReps: [...byReps.values()].sort((a, b) => a.reps - b.reps) };
 }
 
-function programContext(data, session) {
+export function programContext(data, session) {
   const date = dayOf(session);
   const entry = (data.schedule ?? []).find(item => item.id === session.scheduleID);
   const blocks = data.programBlocks ?? [];

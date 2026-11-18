@@ -12,9 +12,12 @@ import { readinessFields, renderMove, renderProgramWeek, renderReadiness, render
 import { comparisonScopes, dayOf, historyDraft, newHistorySet, priorComparable, sessionsByDate } from './history.js';
 import { calendarMonth, renderComparison, renderFinishSummary, renderHistoryEditor, renderHistoryFilters, renderHistorySessions } from './history-ui.js';
 import { readAnalyticsSettings, renderAnalytics } from './analytics-ui.js';
+import { programContext } from './analytics.js';
 import { renderBodyweight, renderWeightTarget } from './bodyweight-ui.js';
 import { createDevicePhotoStore, photoDates, requestDevicePhoto } from './device-photos.js';
 import { cancelPhotoPreviews, paintPhotoPreviews, renderManagePhotos, renderPhotoComparison } from './progress-photos-ui.js';
+import { readProgressionRule, renderProgressionDetail, renderProgressionList, updateProgressionFields } from './progression-ui.js';
+import { progressionRule, suggestProgression } from './progression.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -271,7 +274,7 @@ function exerciseCard(exercise, index) {
         </span>
         <span class="exercise-stats">
           <span><span class="stat-label">Previous best set</span><strong>${bestSet}</strong></span>
-          <span class="prediction"><span class="stat-label">${icon('spark', 15)} Future prediction</span><strong>Coming later</strong></span>
+          <span class="prediction"><span class="stat-label">${icon('spark', 15)} Progression</span><strong>Personal workouts only</strong></span>
         </span>
       </summary>
       <div class="advanced">
@@ -309,6 +312,7 @@ function todayPage() {
       <p class="eyebrow schedule-label">${summary.name}${summary.detail ? ' · ' + escapeHTML(summary.detail) : ''}</p><h2>${escapeHTML(version.name)}</h2>
       ${summary.block ? `<p class="chart-subtitle">${escapeHTML(summary.block.name)} · Week ${summary.index + 1} · ${summary.kind}${summary.notes ? ' · ' + escapeHTML(summary.notes) : ''}</p>` : ''}
       ${actionable || entry.status === 'active' ? renderPlan(version, state.unit) : ''}
+      ${actionable && programContext(state.planRecords, { localDate: entry.date, scheduleID: entry.id }).kind !== 'deload' && newest(personalRoutine(version.routineID)).id === version.id ? `<button type="button" class="secondary" data-action="progression-open" data-value="${version.routineID}">Review progression</button>` : ''}
       ${(actionable && (!entry.rotationID || entry.date === today())) || entry.status === 'active' ? `<button type="button" class="primary" data-action="log-start-scheduled" data-value="${entry.key}">${label}</button>` : ''}
       ${actionable ? `<div class="schedule-nav"><button type="button" class="secondary" data-action="schedule-move" data-value="${entry.key}">Move session</button>
       <button type="button" class="secondary" data-action="schedule-skip" data-value="${entry.key}">Skip session</button></div>` : ''}</article>`;
@@ -363,6 +367,7 @@ function historyPage() {
     if (!progress) return heading + picker + compare + renderHistorySessions(state.planRecords, state.historyView, state.unit, activePersonal(), dateLabel, state.photoLinks, state.user);
     return heading + picker + compare + `<div class="stack session-list">${renderHistoryFilters(state.planRecords.sessions, state.historyView.filters)}
       ${renderBodyweight(state.user, state.unit, shortDate)}
+      <section class="surface settings-card progression-entry"><h2>Exercise progression</h2><button type="button" class="secondary" data-action="progression-open">Review progression</button></section>
       ${renderAnalytics(state.planRecords, state.historyView.filters, state.unit, state.analyticsView, libraryExercise,
         Object.fromEntries(Object.entries(anatomy?.regions ?? {}).map(([key, region]) => [key, region.name])), dateLabel)}</div>`;
   }
@@ -419,6 +424,8 @@ function render({ scroll = false, focus = null } = {}) {
 let dialogAction = null;
 let dialogTrigger = null;
 let exerciseDraft = null;
+let progressionReview = null;
+let progressionRoutineID = '';
 
 function showDialog(type, title, body, trigger) {
   dialogAction = type;
@@ -435,6 +442,59 @@ function showWeight(trigger, date = state.date) {
   const value = state.sampleMode ? state.preview.weights[date] : state.user.entries[date]?.kilograms;
   const entered = value ? Math.round(value / kilogramsPerUnit() * 10) / 10 : '';
   showDialog('weight', 'Log bodyweight', `<p class="dialog-description">${state.sampleMode ? 'Sample entry · ' : ''}${longDate(date)}</p><form id="weight-form" data-day="${date}"><label for="weight-input">Bodyweight (${state.unit})</label><input id="weight-input" type="number" inputmode="decimal" name="weight" required min="0.1" step="0.1" value="${entered}" autofocus><div id="weight-error" role="alert"></div><button class="primary" type="submit">${icon('check', 19)} Save entry</button></form>`, trigger);
+}
+
+function showProgressionList(trigger, routineID = progressionRoutineID) {
+  progressionRoutineID = routineID;
+  progressionReview = null;
+  const plans = state.planRecords.routines.filter(routine => !routineID || routine.id === routineID).map(newest);
+  showDialog('progression-list', 'Exercise progression', renderProgressionList(state.planRecords, plans, dateLabel), trigger);
+  focusProgressionTitle();
+}
+
+function showProgressionReview(routineID, rowID, trigger, ruleOpen = false) {
+  const routine = personalRoutine(routineID);
+  const version = routine && newest(routine);
+  const row = version?.exercises.find(item => item.id === rowID);
+  if (!row) return showProgressionList(trigger);
+  const suggestion = suggestProgression(state.planRecords, version, row);
+  progressionReview = { routineID, version, row, suggestion };
+  showDialog('progression-detail', escapeHTML(row.exercise.name),
+    renderProgressionDetail(state.planRecords, version, row, suggestion, state.unit, dateLabel, ruleOpen), trigger);
+  const form = dialog.querySelector('#progression-form');
+  if (form) updateProgressionFields(form);
+  focusProgressionTitle();
+}
+
+function focusProgressionTitle() {
+  const title = dialog.querySelector('#dialog-title');
+  title.tabIndex = -1;
+  title.focus();
+}
+
+function handleProgressionAction(action, value, focus) {
+  if (action === 'progression-open') return showProgressionList(dialog.open ? dialogTrigger : focus, value ?? '');
+  if (action === 'progression-list') return showProgressionList(dialogTrigger);
+  if (action === 'progression-review') return showProgressionReview(...value.split(':'), dialogTrigger);
+  if (!progressionReview) return;
+  const { routineID, version, row, suggestion } = progressionReview;
+  if (action === 'progression-override') {
+    dialogTrigger = null;
+    dialog.close();
+    selectTab('routines');
+    return openBuilder(newest(personalRoutine(routineID)), null, row.id);
+  }
+  try {
+    state.planRecords = routineStore.acceptProgression(routineID, version.id, row.id, suggestion);
+    render();
+    showProgressionReview(routineID, row.id, dialogTrigger);
+    const status = document.createElement('p');
+    status.className = 'builder-hint';
+    status.setAttribute('role', 'status');
+    status.textContent = 'Suggestion saved as a new routine version.';
+    dialog.querySelector('.progression-detail').prepend(status);
+    announce(status.textContent);
+  } catch (error) { dialog.querySelector('#progression-error').textContent = error.message; }
 }
 
 let photoContext = null;
@@ -844,7 +904,8 @@ function finishLogger(id, early) {
 function showFinishedWorkout(session) {
   if (!session) return;
   showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit) +
-    `<button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>`, '.active-bar');
+    `<div class="builder-actions"><button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>
+      ${state.planRecords.routines.length ? `<button type="button" class="secondary" data-action="progression-open" data-value="${personalRoutine(session.snapshot.routineID)?.id ?? ''}">Review progression</button>` : ''}</div>`, '.active-bar');
 }
 
 function confirmLog(message, label, action, value = '') {
@@ -989,9 +1050,10 @@ function selectTab(tab, focus = false) {
   render({ scroll: true, focus: focus ? '#main' : null });
 }
 
-function openBuilder(version, sessionID = null) {
-  state.builder = { draft: makeDraft(version, state.unit), expanded: new Set(), search: '', sessionID };
-  render({ scroll: true, focus: '#main' });
+function openBuilder(version, sessionID = null, rowID = null) {
+  state.builder = { draft: makeDraft(version, state.unit), expanded: new Set(rowID ? [rowID] : []), search: '', sessionID };
+  render({ scroll: true, focus: rowID ? null : '#main' });
+  if (rowID) main.querySelector(`[data-builder-expand="${rowID}"] > summary`)?.focus();
 }
 
 function closeBuilder() {
@@ -1289,6 +1351,10 @@ document.addEventListener('click', event => {
     void handlePhotoAction(action, value, focus);
     return;
   }
+  if (action.startsWith('progression-')) {
+    handleProgressionAction(action, value, focus);
+    return;
+  }
   if (action.startsWith('analytics-')) {
     const view = state.analyticsView;
     if (action === 'analytics-save') {
@@ -1399,12 +1465,17 @@ dialog.addEventListener('close', () => {
   historyComparison = null;
   photoContext = null;
   photoComparison = null;
+  progressionReview = null;
   cancelPhotoPreviews(dialog);
   if (wasWorkout && activePersonal() && state.tab === 'today') render();
   if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
 });
 dialog.addEventListener('change', event => {
   const field = event.target;
+  if (dialogAction === 'progression-detail' && field.form?.id === 'progression-form') {
+    updateProgressionFields(field.form);
+    return;
+  }
   if (dialogAction === 'photos-compare') {
     const side = field.dataset.photoDate;
     const selection = field.dataset.photoChoice;
@@ -1489,6 +1560,18 @@ dialog.addEventListener('input', event => {
   } catch (error) { planError(error); }
 });
 dialog.addEventListener('submit', event => {
+  if (dialogAction === 'progression-detail' && event.target.id === 'progression-form' && progressionReview) {
+    event.preventDefault();
+    const { routineID, version, row } = progressionReview;
+    try {
+      const rule = readProgressionRule(event.target, state.unit, progressionRule(state.planRecords, row));
+      state.planRecords = routineStore.saveProgressionRule(routineID, version.id, row.id, rule);
+      showProgressionReview(routineID, row.id, dialogTrigger, true);
+      dialog.querySelector('#progression-form button')?.focus();
+      announce('Progression rule saved.');
+    } catch (error) { dialog.querySelector('#progression-rule-error').textContent = error.message; }
+    return;
+  }
   if (dialogAction === 'weight-target') {
     event.preventDefault();
     const input = dialog.querySelector('#weight-target-input');

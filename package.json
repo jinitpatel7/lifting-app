@@ -5,6 +5,6 @@
   "scripts": {
     "dev": "node preview/server.mjs",
     "start": "node preview/server.mjs",
-    "test": "node --test preview/storage.test.js preview/exercises.test.js preview/routines.test.js preview/workout-log.test.js preview/schedule.test.js preview/history.test.js preview/analytics.test.js preview/bodyweight-photos.test.js"
+    "test": "node --test preview/storage.test.js preview/exercises.test.js preview/routines.test.js preview/workout-log.test.js preview/schedule.test.js preview/history.test.js preview/analytics.test.js preview/bodyweight-photos.test.js preview/progression.test.js"
   }
 }

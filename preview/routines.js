@@ -3,6 +3,7 @@ import { applyWorkoutChange, reconcileLog, repeatLog, routineFromLog, sessionPla
 import { applyScheduleChange, scheduleEntry, scheduleVersion } from './schedule.js';
 import { invalidateHistoryPredictions, saveHistoryEntry } from './history.js';
 import { validateAnalytics } from './analytics.js';
+import { suggestProgression, validateProgressionRule } from './progression.js';
 export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
@@ -189,6 +190,27 @@ export function createRoutineStore(storage) {
         else data.routines.push({ id: draft.routineID, versions: [version] });
       });
     },
+    saveProgressionRule(routineID, versionID, rowID, rule) {
+      return save(data => {
+        const { row } = progressionSlot(data, routineID, versionID, rowID);
+        if (rule) validateProgressionRule(row, rule);
+        const variant = variantKey(row);
+        data.progressionRules = (data.progressionRules ?? []).filter(item => item.variant !== variant);
+        if (rule) data.progressionRules.push({ variant, rule });
+      });
+    },
+    acceptProgression(routineID, versionID, rowID, reviewed) {
+      return save(data => {
+        const { routine, version, row } = progressionSlot(data, routineID, versionID, rowID);
+        const current = suggestProgression(data, version, row);
+        if (!current.changes.length || JSON.stringify(current) !== JSON.stringify(reviewed)) {
+          throw new Error('The suggestion changed. Reopen the review before accepting it.');
+        }
+        const work = row.work.map((plan, index) => current.changes.find(change => change.index === index)?.prescription ?? plan);
+        const exercises = version.exercises.map(entry => entry.id === rowID ? { ...row, work } : entry);
+        routine.versions.push({ ...version, exercises, id: uuid(), revision: version.revision + 1, createdAt: new Date().toISOString() });
+      });
+    },
     duplicate(routineID) {
       return save(data => {
         const routine = data.routines.find(item => item.id === routineID);
@@ -299,4 +321,12 @@ export function createRoutineStore(storage) {
       });
     },
   };
+}
+
+function progressionSlot(data, routineID, versionID, rowID) {
+  const routine = data.routines.find(item => item.id === routineID);
+  const version = routine && newest(routine);
+  const row = version?.exercises.find(item => item.id === rowID);
+  if (version?.id !== versionID || !row) throw new Error('This routine changed. Reopen the progression review.');
+  return { routine, version, row };
 }
