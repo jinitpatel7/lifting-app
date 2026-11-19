@@ -20,6 +20,7 @@ struct TrainingRecords: Codable, Equatable {
     var analyticsSettings: AnalyticsSettings? = nil
     var bodyweightTargetKgPerWeek: Double? = nil
     var progressionRules: [ExerciseProgressionRule]? = nil
+    var companionCursor: WorkoutCompanionCursor? = nil
 
     var activeSession: WorkoutSession? { sessions.first { $0.completedAt == nil } }
     var currentRoutines: [RoutineVersion] {
@@ -418,7 +419,7 @@ final class TrainingRepository {
         try commit { $0.sessions[index] = updated }
     }
 
-    func finishSession(_ id: UUID, early: Bool = false, at date: Date = Date()) throws {
+    func finishSession(_ id: UUID, early: Bool = false, at date: Date = Date(), companionCommand: UUID? = nil) throws {
         let index = try sessionIndex(id)
         let session = records.sessions[index]
         if session.completedAt != nil { return }
@@ -434,6 +435,7 @@ final class TrainingRepository {
             $0.sessions[index].endedEarly = early || unfinished ? true : nil
             $0.sessions[index].workoutLog?.rest = nil
             $0.sessions[index].workoutLog?.undo = nil
+            $0.sessions[index].recordCompanionCommand(companionCommand)
         }
     }
 
@@ -518,14 +520,20 @@ final class TrainingRepository {
         var next = records
         update(&next)
         next.invalidateHistoryPredictions(comparedTo: records)
+        if let cursor = records.companionCursor, next.activeSession != records.activeSession {
+            next.companionCursor = cursor.advanced()
+        }
         try files.saveUserData(next)
         records = next
     }
 
     func restoreBackup(_ backup: SetlineBackup) throws {
         try SetlineBackup.validate(backup.payload.records)
-        try files.saveUserData(backup.payload.records)
-        records = backup.payload.records
+        var restored = backup.payload.records
+        restored.clearCompanionState()
+        restored.companionCursor = records.companionCursor?.advanced()
+        try files.saveUserData(restored)
+        records = restored
     }
 
     func importRoutine(_ file: RoutineExchange) throws -> Bool {
@@ -557,7 +565,8 @@ extension TrainingRepository {
         try commit { $0.sessions[index].workoutLog = log }
     }
 
-    func changeWorkout(_ id: UUID, _ change: WorkoutLogChange, at date: Date = Date()) throws {
+    func changeWorkout(_ id: UUID, _ change: WorkoutLogChange, at date: Date = Date(),
+                       completionInput: WorkoutSetInput? = nil, companionCommand: UUID? = nil) throws {
         let index = try sessionIndex(id)
         var session = records.sessions[index]
         guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
@@ -723,7 +732,7 @@ extension TrainingRepository {
             guard let measurement = exercises.first(where: { $0.id == id })?.variant.measurement else {
                 throw TrainingDataError.unknownRecord("This exercise is no longer in the workout.")
             }
-            let input = set.input ?? WorkoutSetInput(unit: unit, prescription: set.prescription)
+            let input = completionInput ?? set.input ?? WorkoutSetInput(unit: unit, prescription: set.prescription)
             let amount = try input.performedAmount(for: measurement)
             let reps = try input.repetitions(for: measurement)
             let rightAmount = try input.performedRightAmount(for: measurement, reps: reps)
@@ -756,7 +765,10 @@ extension TrainingRepository {
             session.captureForecasts(in: records, at: date)
         default: break
         }
-        if session != records.sessions[index] { try commit { $0.sessions[index] = session } }
+        if session != records.sessions[index] || companionCommand != nil {
+            session.recordCompanionCommand(companionCommand)
+            try commit { $0.sessions[index] = session }
+        }
     }
 
     @discardableResult

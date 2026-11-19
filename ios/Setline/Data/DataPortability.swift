@@ -35,6 +35,7 @@ struct SetlineBackup: Codable {
 
     static func make(_ records: TrainingRecords, settings: BackupDisplaySettings, options: BackupOptions) throws -> Self {
         var copy = records
+        copy.clearCompanionState()
         if !options.bodyweight {
             copy.bodyweightEntries = []
             copy.bodyweightTargetKgPerWeek = nil

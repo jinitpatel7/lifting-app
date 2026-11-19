@@ -137,6 +137,7 @@ struct SettingsScreen: View {
     @Binding var unit: WeightUnit
     let openPortability: () -> Void
     let openAccount: () -> Void
+    let reminders: WorkoutReminderCoordinator
     @Environment(\.accessibilityReduceTransparency) private var systemOpaque
 
     var body: some View {
@@ -170,6 +171,7 @@ struct SettingsScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14).surface()
+        WorkoutConvenienceSettings(reminders: reminders)
     }
 
     private func title(_ title: String, icon: String) -> some View {

@@ -48,6 +48,9 @@
 		100000000000000000000140 /* DataPortability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000242 /* DataPortability.swift */; };
 		100000000000000000000141 /* RoutineExchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000243 /* RoutineExchange.swift */; };
 		100000000000000000000142 /* PortabilityScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000244 /* PortabilityScreen.swift */; };
+		100000000000000000000143 /* WorkoutCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000245 /* WorkoutCompanion.swift */; };
+		100000000000000000000144 /* WorkoutReminders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000246 /* WorkoutReminders.swift */; };
+		100000000000000000000145 /* WorkoutConvenienceScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000247 /* WorkoutConvenienceScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -95,6 +98,9 @@
 		100000000000000000000242 /* DataPortability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DataPortability.swift; path = Data/DataPortability.swift; sourceTree = "<group>"; };
 		100000000000000000000243 /* RoutineExchange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RoutineExchange.swift; path = Data/RoutineExchange.swift; sourceTree = "<group>"; };
 		100000000000000000000244 /* PortabilityScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortabilityScreen.swift; sourceTree = "<group>"; };
+		100000000000000000000245 /* WorkoutCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Data/WorkoutCompanion.swift; sourceTree = "<group>"; };
+		100000000000000000000246 /* WorkoutReminders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Data/WorkoutReminders.swift; sourceTree = "<group>"; };
+		100000000000000000000247 /* WorkoutConvenienceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutConvenienceScreen.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,6 +158,9 @@
 				100000000000000000000242 /* DataPortability.swift */,
 				100000000000000000000243 /* RoutineExchange.swift */,
 				100000000000000000000244 /* PortabilityScreen.swift */,
+				100000000000000000000245 /* WorkoutCompanion.swift */,
+				100000000000000000000246 /* WorkoutReminders.swift */,
+				100000000000000000000247 /* WorkoutConvenienceScreen.swift */,
 				100000000000000000000403 /* Resources */,
 			);
 			path = Setline;
@@ -274,6 +283,9 @@
 				100000000000000000000140 /* DataPortability.swift in Sources */,
 				100000000000000000000141 /* RoutineExchange.swift in Sources */,
 				100000000000000000000142 /* PortabilityScreen.swift in Sources */,
+				100000000000000000000143 /* WorkoutCompanion.swift in Sources */,
+				100000000000000000000144 /* WorkoutReminders.swift in Sources */,
+				100000000000000000000145 /* WorkoutConvenienceScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

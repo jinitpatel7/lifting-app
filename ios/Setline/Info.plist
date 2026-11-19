@@ -2,6 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.setline.workout</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>setline</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+        </dict>
+    </array>
     <key>NSCameraUsageDescription</key>
     <string>Take a progress photo when you choose to link one to your training.</string>
     <key>NSPhotoLibraryUsageDescription</key>

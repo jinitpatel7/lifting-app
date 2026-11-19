@@ -14,7 +14,7 @@ struct PersonalTodayScreen: View {
     let logReadiness: (WorkoutDate) -> Void
     let reviewProgression: (UUID) -> Void
     @Binding var selectedDay: String?
-    @State private var anchor: WorkoutDate?
+    @Binding var anchor: WorkoutDate?
     @State private var recentView = false
     @State private var pendingSkip: ScheduleOccurrence?
 

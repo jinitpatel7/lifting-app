@@ -1,13 +1,19 @@
 import SwiftUI
+import UIKit
 
 @main
 @MainActor
 struct SetlineApp: App {
     @State private var model = TrainingModel()
     @StateObject private var photoAccess = ProgressPhotoAccess()
+    @StateObject private var reminders = WorkoutReminderCoordinator()
+    @UIApplicationDelegateAdaptor(WorkoutReminderAppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup { SetlineRoot(model: model).environmentObject(photoAccess) }
+        WindowGroup {
+            SetlineRoot(model: model, reminders: reminders, appDelegate: appDelegate)
+                .environmentObject(photoAccess)
+        }
     }
 }
 
@@ -60,14 +66,18 @@ private enum ActiveSheet: Identifiable {
 
 struct SetlineRoot: View {
     let model: TrainingModel
+    @ObservedObject var reminders: WorkoutReminderCoordinator
+    let appDelegate: WorkoutReminderAppDelegate
     @AppStorage("appearance") private var appearance: Appearance = .system
     @AppStorage("reduceTransparency") private var opaque = false
     @AppStorage("weightUnit") private var unit: WeightUnit = .kg
     @Environment(\.accessibilityReduceTransparency) private var systemOpaque
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: MainTab = .today
     @State private var sheet: ActiveSheet?
     @State private var day: String?
+    @State private var trainingAnchor: WorkoutDate?
     @State private var routine: Routine?
     @State private var history: HistoryScreen.Section = .progress
     @State private var historyDay: WorkoutDate?
@@ -93,6 +103,25 @@ struct SetlineRoot: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { dock }
         .background(Palette.background.ignoresSafeArea())
         .preferredColorScheme(appearance.colorScheme)
+        .onOpenURL { url in
+            if let route = WorkoutEntryRoute(url) { openWorkoutEntry(route) }
+        }
+        .onReceive(appDelegate.$openedRoute) { route in
+            guard let route else { return }
+            Task { @MainActor in
+                guard appDelegate.openedRoute == route else { return }
+                appDelegate.openedRoute = nil
+                openWorkoutEntry(route)
+            }
+        }
+        .onChange(of: scenePhase, initial: true) {
+            if scenePhase == .active { reminders.refresh(records: model.records, force: true) }
+        }
+        .onChange(of: model.records) { reminders.refresh(records: model.records) }
+        .onChange(of: reminders.preferences) { reminders.refresh(records: model.records) }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            reminders.refresh(records: model.records, force: true)
+        }
         .sheet(item: $sheet) { presented in
             switch presented {
             case .bodyweight(let date):
@@ -151,7 +180,7 @@ struct SetlineRoot: View {
                                     start: startScheduled, startEmpty: { if model.startEmptyWorkout() { sheet = .workout } },
                                     editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, openSchedule: { sheet = .schedulePlanner },
                                     move: { sheet = .moveScheduled($0) }, skip: skipScheduled, logReadiness: { sheet = .readiness($0) },
-                                    reviewProgression: { sheet = .progression($0) }, selectedDay: $day)
+                                    reviewProgression: { sheet = .progression($0) }, selectedDay: $day, anchor: $trainingAnchor)
             }
         case .routines:
             if showsSample, let sample = model.sample {
@@ -173,7 +202,23 @@ struct SetlineRoot: View {
             }
         case .settings:
             SettingsScreen(appearance: $appearance, opaque: $opaque, unit: $unit,
-                openPortability: { sheet = .portability }, openAccount: { sheet = .account })
+                openPortability: { sheet = .portability }, openAccount: { sheet = .account }, reminders: reminders)
+        }
+    }
+
+    private func openWorkoutEntry(_ route: WorkoutEntryRoute) {
+        showsSample = false
+        routine = nil
+        tab = .today
+        switch route {
+        case .active:
+            day = nil
+            trainingAnchor = nil
+            sheet = model.records.activeSession == nil ? nil : .workout
+        case .scheduled(let date):
+            day = date.key
+            trainingAnchor = date
+            sheet = nil
         }
     }
 

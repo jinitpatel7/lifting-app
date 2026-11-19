@@ -43,7 +43,7 @@ struct Mass: Codable, Hashable {
     }
 }
 
-struct WorkoutDate: Codable, Hashable, Comparable {
+struct WorkoutDate: Codable, Hashable, Comparable, Sendable {
     let key: String
 
     static let format = Date.ISO8601FormatStyle(timeZone: .gmt)
@@ -290,6 +290,7 @@ struct WorkoutSession: Codable, Equatable, Identifiable {
     var forecastEvidenceAt: Date? = nil
     var forecastPerformedSlots: Set<UUID>? = nil
     var energyInput: WorkoutEnergyInput? = nil
+    var companionCommands: Set<UUID>? = nil
 
     var plan: RoutineVersion { sessionPlan ?? routineSnapshot }
 }
