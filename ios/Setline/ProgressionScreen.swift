@@ -38,13 +38,17 @@ private struct ProgressionDetail: View {
     let unit: WeightUnit
     let routineID: UUID
     let rowID: UUID
+    var pinnedVersionID: UUID? = nil
     @State private var configure = false
     @State private var editingTargets = false
     @State private var status: String?
+    @State private var showCurrent = false
 
     var body: some View {
         Group {
-            if let version = model.records.currentRoutines.first(where: { $0.routineID == routineID }),
+            let version = (!showCurrent ? pinnedVersionID.flatMap(model.records.version) : nil) ??
+                model.records.currentRoutines.first(where: { $0.routineID == routineID })
+            if let version,
                let row = version.exercises.first(where: { $0.id == rowID }) {
                 review(version, row: row)
             } else { Text("This exercise slot is no longer in the routine.") }
@@ -75,18 +79,27 @@ private struct ProgressionDetail: View {
                 Text(suggestion.reason)
                 ForEach(suggestion.changes.keys.sorted(), id: \.self) { index in
                     if let prescription = suggestion.changes[index] {
-                        Text("Block \(index + 1) · \(row.summary(prescription, unit: unit, fractionDigits: 0...4))")
+                        let before = row.summary(row.workingSets[index], unit: unit, fractionDigits: 0...4)
+                        let after = (suggestion.replacements[index] ?? [prescription]).map {
+                            row.summary($0, unit: unit, fractionDigits: 0...4)
+                        }.joined(separator: " + ")
+                        Text("Block \(index + 1) · \(before) → \(after.isEmpty ? "Remove block" : after)")
                     }
                 }
                 if !suggestion.changes.isEmpty {
-                    Button("Accept suggestion") {
-                        if model.updateUserData({ try $0.acceptProgression(suggestion, versionID: version.id, rowID: row.id) }) {
-                            status = "Suggestion saved as a new routine version."
-                        }
+                    if let warning = suggestion.warning { Text(warning).foregroundStyle(Palette.purple) }
+                    Button("Apply once") { apply(suggestion, version: version, row: row, scope: .once) }
+                        .frame(minHeight: 44)
+                    if model.records.currentRoutines.contains(where: { $0.id == version.id }) {
+                        Button("Update routine") { apply(suggestion, version: version, row: row, scope: .routine) }
+                            .frame(minHeight: 44)
+                    }
+                    Button("Edit recommendation") { editingTargets = true }.frame(minHeight: 44)
+                    Button(suggestion.warning == nil ? "Dismiss recommendation" : "Hold for now") {
+                        apply(suggestion, version: version, row: row, scope: .dismiss)
                     }.frame(minHeight: 44)
                 }
-                Button("Override targets in routine editor") { editingTargets = true }.frame(minHeight: 44)
-                Text("Saving a target change creates a new routine version. Existing workouts and scheduled versions keep their original targets.")
+                Text("Apply once uses the next matching workout. Update routine saves a new version. Existing scheduled versions keep their original targets.")
                     .font(.caption).foregroundStyle(Palette.muted)
             }
             if let day = suggestion.sourceDate {
@@ -102,7 +115,22 @@ private struct ProgressionDetail: View {
         }
         .navigationTitle(row.variant.exercise.name)
         .sheet(isPresented: $configure) { ProgressionRuleEditor(model: model, unit: unit, version: version, row: row, rule: rule) }
-        .sheet(isPresented: $editingTargets) { RoutineEditor(model: model, unit: unit, original: version, focusedExerciseID: row.id) }
+        .sheet(isPresented: $editingTargets) {
+            ProgressionTargetEditor(model: model, unit: unit, version: version, row: row, suggestion: suggestion) { scope in
+                showCurrent = scope == .routine
+                status = scope == .routine ? "Edited targets saved as a new routine version." : "Edited targets queued for the next matching workout."
+            }
+        }
+    }
+
+    private func apply(_ suggestion: ProgressionSuggestion, version: RoutineVersion, row: PlannedExercise, scope: ProgressionScope) {
+        if model.updateUserData({ try $0.acceptProgression(suggestion, versionID: version.id, rowID: row.id, scope: scope) }) {
+            switch scope {
+            case .routine: showCurrent = true; status = "Recommendation saved as a new routine version."
+            case .once: status = "Queued for the next matching workout."
+            case .dismiss: status = "Recommendation dismissed."
+            }
+        }
     }
 
     private func evidence(_ item: HistorySet, row: PlannedExercise, assessment: String? = nil) -> some View {
@@ -133,8 +161,10 @@ private struct ProgressionRuleEditor: View {
     let rule: ProgressionRule?
     @Environment(\.dismiss) private var dismiss
     @State private var mode: ProgressionMode?
-    @State private var threshold: ProgressionRule.Threshold
-    @State private var miss: ProgressionRule.Miss
+    @State private var topSessions: Int
+    @State private var allowExtraSet: Bool
+    @State private var plateauSessions: Int
+    @State private var volumeCap: Int
     @State private var effort: ProgressionRule.Effort
     @State private var step: String
     @State private var effortLimit: String
@@ -145,9 +175,12 @@ private struct ProgressionRuleEditor: View {
         self.version = version
         self.row = row
         self.rule = rule
-        _mode = State(initialValue: rule?.mode)
-        _threshold = State(initialValue: rule?.threshold ?? .top)
-        _miss = State(initialValue: rule?.miss ?? .hold)
+        _mode = State(initialValue: model.records.disabledProgression?.contains(row.variant.key) == true ? nil :
+            (rule?.mode ?? row.progressionModes.first))
+        _topSessions = State(initialValue: rule?.topSessions ?? 2)
+        _allowExtraSet = State(initialValue: rule?.allowExtraSet ?? false)
+        _plateauSessions = State(initialValue: rule?.plateauSessions ?? 3)
+        _volumeCap = State(initialValue: rule?.volumeCap ?? 6)
         _effort = State(initialValue: rule?.effort ?? .none)
         _step = State(initialValue: Self.stepText(rule, unit: unit))
         _effortLimit = State(initialValue: rule?.effortLimit.map { $0.formatted() } ?? "")
@@ -163,26 +196,24 @@ private struct ProgressionRuleEditor: View {
                     }
                     if let mode {
                         if mode != .reps {
-                            TextField("Available increment (\(stepLabel(mode)))", text: $step).keyboardType(.decimalPad)
-                        }
-                        if mode == .load || mode == .assistance {
-                            Picker("Reps required to progress", selection: $threshold) {
-                                ForEach(ProgressionRule.Threshold.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                            }
-                        }
-                        Picker("When a minimum target is missed", selection: $miss) {
-                            ForEach(ProgressionRule.Miss.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            TextField("Smallest available increment (\(stepLabel(mode)))", text: $step).keyboardType(.decimalPad)
+                            Stepper("Sessions required to increase target · \(topSessions)", value: $topSessions, in: 2...12)
                         }
                         Picker("Use recorded effort", selection: $effort) {
                             ForEach(ProgressionRule.Effort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                         }
                         if effort != .none { TextField("Effort threshold", text: $effortLimit).keyboardType(.decimalPad) }
+                        Toggle("Allow an extra working set on a plateau", isOn: $allowExtraSet)
+                        if allowExtraSet {
+                            Stepper("Plateau sessions · \(plateauSessions)", value: $plateauSessions, in: 2...12)
+                            Stepper("Working set cap per workout · \(volumeCap)", value: $volumeCap, in: 1...30)
+                        }
                     }
                     if let error = model.storageError { Text(error).foregroundStyle(Palette.red) }
                 } header: {
                     Text("Progression rule")
                 } footer: {
-                    Text("Reps progression raises the minimum by one within the prescribed range after every straight working set meets its target. Load, duration, distance, and assistance use the full increment you enter. Effort is used when all eligible sets record the selected metric.")
+                    Text("Load changes use the entered increment or saved equipment inventory. Adding a set also needs recorded effort in reserve or a favorable readiness check-in.")
                 }
             }
             .navigationTitle("Progression rule")
@@ -211,9 +242,61 @@ private struct ProgressionRuleEditor: View {
             let amount = rule?.mode == mode && step == Self.stepText(rule, unit: unit) ? rule?.step :
                 value.map { $0 * (mode.isMass ? unit.kilogramsPerUnit : 1) }
             let limit = effort == .none ? nil : (try? Double(effortLimit, format: .number, lenient: false))
-            return ProgressionRule(mode: mode, threshold: threshold, miss: miss, step: mode == .reps ? nil : amount,
-                effort: effort, effortLimit: limit)
+            return ProgressionRule(mode: mode, threshold: .top, miss: .stepBack, step: mode == .reps ? nil : amount,
+                effort: effort, effortLimit: limit, topSessions: topSessions, allowExtraSet: allowExtraSet,
+                plateauSessions: plateauSessions, volumeCap: volumeCap)
         }
         if model.updateUserData({ try $0.saveProgressionRule(configuration, versionID: version.id, rowID: row.id) }) { dismiss() }
+    }
+}
+
+struct WorkoutRecommendations: View {
+    let model: TrainingModel
+    let version: RoutineVersion
+    let unit: WeightUnit
+    var exerciseIDs: Set<UUID>? = nil
+    @State private var selected: PlannedExercise?
+    @State private var expanded = true
+
+    var body: some View {
+        if version.revision > 0 {
+            let entries = version.exercises.filter { exerciseIDs?.contains($0.id) ?? true }
+            if !entries.isEmpty {
+                DisclosureGroup("Workout recommendations", isExpanded: $expanded) {
+                    ForEach(entries) { row in
+                        let suggestion = ExerciseProgression.suggest(row, in: version, records: model.records)
+                        if suggestion.action != .off {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("\(row.variant.exercise.name) · \(suggestion.action.rawValue)").font(.subheadline.weight(.semibold))
+                                Text(suggestion.reason).font(.caption)
+                                if let queued = model.records.progressionDecisions?.first(where: {
+                                    $0.versionID == version.id && $0.rowID == row.id
+                                })?.working {
+                                    let summary = queued.map { row.summary($0, unit: unit, fractionDigits: 0...4) }.joined(separator: " + ")
+                                    Text("Queued targets · \(summary)").font(.caption)
+                                }
+                                ForEach(suggestion.changes.keys.sorted(), id: \.self) { index in
+                                    if let changed = suggestion.changes[index] {
+                                        let before = row.summary(row.workingSets[index], unit: unit, fractionDigits: 0...4)
+                                        let after = (suggestion.replacements[index] ?? [changed]).map {
+                                            row.summary($0, unit: unit, fractionDigits: 0...4)
+                                        }.joined(separator: " + ")
+                                        Text("\(before) → \(after.isEmpty ? "Remove block" : after)").font(.caption)
+                                    }
+                                }
+                                if let warning = suggestion.warning { Text(warning).font(.caption).foregroundStyle(Palette.purple) }
+                                Button("Review \(row.variant.exercise.name)") { selected = row }.buttonStyle(SecondaryButton())
+                            }.padding(.vertical, 6)
+                        }
+                    }
+                }
+                .sheet(item: $selected) { row in
+                    NavigationStack {
+                        ProgressionDetail(model: model, unit: unit, routineID: version.routineID, rowID: row.id, pinnedVersionID: version.id)
+                            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { selected = nil } } }
+                    }
+                }
+            }
+        }
     }
 }

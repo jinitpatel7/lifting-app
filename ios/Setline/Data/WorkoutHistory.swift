@@ -317,6 +317,7 @@ extension TrainingRepository {
                 startedAt: draft.start, scheduleID: nil, routineSnapshot: snapshot, completedAt: end, manualDurationKnown: minutes != nil)
         }
 
+        if let existing = session.workoutLog { session.rememberScoreSlots(from: existing) }
         let current = session.plan
         let byID = Dictionary(uniqueKeysWithValues: current.exercises.map { ($0.id, $0) })
         let draftIDs = Set(draft.exercises.map(\.id))
@@ -391,6 +392,7 @@ extension TrainingRepository {
         log.rest = nil
         log.undo = nil
         session.workoutLog = log
+        session.rememberScoreSlots(from: log)
         session.performedSets = result
         session.endedEarly = draft.incomplete ? true : nil
         if let position {

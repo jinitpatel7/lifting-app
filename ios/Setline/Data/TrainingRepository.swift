@@ -20,6 +20,9 @@ struct TrainingRecords: Codable, Equatable {
     var analyticsSettings: AnalyticsSettings? = nil
     var bodyweightTargetKgPerWeek: Double? = nil
     var progressionRules: [ExerciseProgressionRule]? = nil
+    var disabledProgression: [ExerciseVariantKey]? = nil
+    var progressionDecisions: [ProgressionDecision]? = nil
+    var scoreWeights: WorkoutScoreWeights? = nil
     var companionCursor: WorkoutCompanionCursor? = nil
 
     var activeSession: WorkoutSession? { sessions.first { $0.completedAt == nil } }
@@ -318,8 +321,12 @@ final class TrainingRepository {
         var session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone),
                                      timeZoneIdentifier: timeZone.identifier, startedAt: date,
                                      scheduleID: scheduleID, routineSnapshot: version)
+        let queued = try session.prepareQueuedProgression(in: records)
         session.captureForecasts(in: records, at: date)
-        try commit { $0.sessions.append(session) }
+        try commit {
+            $0.sessions.append(session)
+            $0.consumeProgression(versionID: version.id, rows: queued)
+        }
         return session
     }
 
@@ -369,8 +376,14 @@ final class TrainingRepository {
         var session = WorkoutSession(localDate: WorkoutDate(date, timeZone: timeZone), timeZoneIdentifier: timeZone.identifier,
                                      startedAt: date, scheduleID: nil, routineSnapshot: source.plan, referenceSessionID: source.id,
                                      workoutLog: source.workoutLog?.repeated(), routineUpdateBaseID: source.routineUpdateBaseID)
+        let queued: Set<UUID> = records.version(source.plan.id)?.exercises == source.plan.exercises
+            ? try session.prepareQueuedProgression(in: records) : []
+        if let log = session.workoutLog { session.rememberScoreSlots(from: log) }
         session.captureForecasts(in: records, at: date)
-        try commit { $0.sessions.append(session) }
+        try commit {
+            $0.sessions.append(session)
+            $0.consumeProgression(versionID: source.plan.id, rows: queued)
+        }
         return session
     }
 
@@ -393,8 +406,11 @@ final class TrainingRepository {
                                   createdAt: prior.createdAt, name: name, exercises: snapshots,
                                   categoryID: prior.categoryID, groups: normalized.isEmpty ? nil : normalized)
         var updated = session
+        let initialLog = try session.workoutLog ?? WorkoutLog(session: session)
+        updated.workoutLog = initialLog
+        updated.rememberScoreSlots(from: initialLog)
         updated.sessionPlan = plan == session.routineSnapshot ? nil : plan
-        if let log = session.workoutLog {
+        if let log = updated.workoutLog {
             let exercises = try snapshots.map { entry in
                 guard var existing = log.exercises.first(where: { $0.id == entry.id }) else { return try WorkoutExerciseLog(entry: entry) }
                 let old = prior.exercises.first { $0.id == entry.id }
@@ -403,11 +419,17 @@ final class TrainingRepository {
                     existing.rows = replacement.rows
                 } else if old?.allPrescriptions != entry.allPrescriptions || old?.warmUps != entry.warmUps {
                     let planned = try WorkoutExerciseLog(entry: entry).rows
-                    var remaining = planned[...]
-                    existing.rows = existing.rows.compactMap { row in
-                        let replacement = remaining.popFirst()
-                        return row.status != .pending || row.input != nil ? row : replacement
-                    } + Array(remaining)
+                    existing.rows = [SetPurpose.warmUp, .working].flatMap { purpose -> [WorkoutSetRow] in
+                        var remaining = planned.filter { $0.purpose == purpose }[...]
+                        let kept = existing.rows.filter { $0.purpose == purpose }.compactMap { row -> WorkoutSetRow? in
+                            guard row.prescription != nil else { return row }
+                            var replacement = remaining.popFirst()
+                            guard row.status == .pending, row.input == nil else { return row }
+                            replacement?.id = row.id
+                            return replacement
+                        }
+                        return kept + Array(remaining)
+                    }
                 }
                 return existing
             }
@@ -449,6 +471,11 @@ final class TrainingRepository {
                 next.bodyweightEntries.append(BodyweightEntry(localDate: day, createdAt: date, updatedAt: date, mass: mass))
             }
         }
+    }
+
+    func saveScoreWeights(_ weights: WorkoutScoreWeights) throws {
+        guard weights.valid else { throw TrainingDataError.invalidRecord("Enter weights from 0 to 100 with at least one greater than zero.") }
+        try commit { $0.scoreWeights = weights }
     }
 
     func addReadinessCheckIn(_ checkIn: ReadinessCheckIn) throws {
@@ -558,11 +585,13 @@ extension TrainingRepository {
 
     func prepareWorkoutLog(_ id: UUID) throws {
         let index = try sessionIndex(id)
-        let session = records.sessions[index]
+        var session = records.sessions[index]
         guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
-        if session.workoutLog != nil { return }
-        let log = try WorkoutLog(session: session)
-        try commit { $0.sessions[index].workoutLog = log }
+        if session.workoutLog != nil && session.scoreSlots != nil { return }
+        let log = try session.workoutLog ?? WorkoutLog(session: session)
+        session.workoutLog = log
+        session.rememberScoreSlots(from: log)
+        try commit { $0.sessions[index] = session }
     }
 
     func changeWorkout(_ id: UUID, _ change: WorkoutLogChange, at date: Date = Date(),
@@ -572,6 +601,7 @@ extension TrainingRepository {
         guard session.completedAt == nil else { throw TrainingDataError.sessionFinished }
         session.rememberForecastOutcomes()
         var log = try session.workoutLog ?? WorkoutLog(session: session)
+        session.rememberScoreSlots(from: log)
         let originalPlan = session.plan
         var exercises = originalPlan.exercises
         let times = session.workoutTimes(at: date, clock: log.clock)

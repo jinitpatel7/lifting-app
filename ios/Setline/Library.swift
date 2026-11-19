@@ -132,6 +132,7 @@ enum Appearance: String, CaseIterable, Identifiable {
 }
 
 struct SettingsScreen: View {
+    let model: TrainingModel
     @Binding var appearance: Appearance
     @Binding var opaque: Bool
     @Binding var unit: WeightUnit
@@ -172,6 +173,7 @@ struct SettingsScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14).surface()
         WorkoutConvenienceSettings(reminders: reminders)
+        WorkoutScoreSettings(model: model)
     }
 
     private func title(_ title: String, icon: String) -> some View {

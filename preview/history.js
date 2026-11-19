@@ -1,5 +1,5 @@
 import { isDay, kilogramsPerPound, localDayKey } from './storage.js';
-import { performedResult, sessionInput, sessionPlan, variantKey, workoutLog } from './workout-log.js';
+import { performedResult, rememberScoreSlots, sessionInput, sessionPlan, variantKey, workoutLog } from './workout-log.js';
 import { workoutTimes } from './workout-tools.js';
 
 const uuid = () => crypto.randomUUID();
@@ -180,6 +180,7 @@ export function saveHistoryEntry(data, draft, now = new Date()) {
   }
   const plan = sessionPlan(session);
   const priorEvidence = JSON.stringify([plan.exercises, session.results]);
+  rememberScoreSlots(session);
   const canonical = new Map(plan.exercises.map(row => [row.id, row]));
   const added = draft.exercises.filter(exercise => !canonical.has(exercise.row.id)).map(exercise => exercise.row);
   for (const row of added) canonical.set(row.id, row);
@@ -208,6 +209,7 @@ export function saveHistoryEntry(data, draft, now = new Date()) {
   session.endedEarly = draft.incomplete;
   session.results = results;
   session.log = { ...log, notes: draft.notes, exercises, rest: null, undo: null };
+  rememberScoreSlots(session);
   if (!original || priorEvidence !== JSON.stringify([sessionPlan(session).exercises, results])) session.forecastEvidenceAt = now.toISOString();
   if (!original) data.sessions.push(session);
 }

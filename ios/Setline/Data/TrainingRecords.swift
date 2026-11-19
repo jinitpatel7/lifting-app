@@ -217,10 +217,12 @@ struct SetPrescription: Codable, Equatable {
     var structure: SetStructure? = nil
     var amrap: Bool? = nil
     var effort: EffortTarget? = nil
+    var progressionFloor: Int? = nil
 
     func isValid(for measurement: Measurement, allowsUntargetedReps: Bool = false) -> Bool {
         sets > 0 && (repsInReserve ?? 0) >= 0 && (restSeconds ?? 0) >= 0
             && (effort?.isValid ?? true) && (effort == nil || repsInReserve == nil)
+            && (progressionFloor.map { floor in floor > 0 && reps.map { floor <= $0.minimum } == true } ?? true)
             && (measurement.repCounting == nil ? reps == nil && amrap != true : (reps?.isValid ?? (amrap == true || allowsUntargetedReps)))
             && (target == nil || measurement.accepts(target))
     }
@@ -290,6 +292,8 @@ struct WorkoutSession: Codable, Equatable, Identifiable {
     var forecastEvidenceAt: Date? = nil
     var forecastPerformedSlots: Set<UUID>? = nil
     var energyInput: WorkoutEnergyInput? = nil
+    var scoreSlots: [UUID: [UUID]]? = nil
+    var intendedPlan: RoutineVersion? = nil
     var companionCommands: Set<UUID>? = nil
 
     var plan: RoutineVersion { sessionPlan ?? routineSnapshot }

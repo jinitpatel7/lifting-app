@@ -258,10 +258,12 @@ extension TrainingRepository {
         guard let version = records.version(entry.routineVersionID) else { throw TrainingDataError.unknownRecord("Scheduled routine not found.") }
         var session = WorkoutSession(localDate: today, timeZoneIdentifier: timeZone.identifier, startedAt: date,
             scheduleID: entry.id, routineSnapshot: version)
+        let queued = try session.prepareQueuedProgression(in: records, schedule: entry)
         try commit { next in
             storeSchedule(entry, in: &next)
             session.captureForecasts(in: next, at: date)
             next.sessions.append(session)
+            next.consumeProgression(versionID: version.id, rows: queued)
         }
         return session
     }

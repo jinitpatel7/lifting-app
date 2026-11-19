@@ -108,7 +108,10 @@ export function renderRoutineBuilder(builder, records, catalog, exercises, unit)
       <div class="builder-actions">${button('Add superset', 'plan-group', 'Superset')}${button('Add circuit', 'plan-group', 'Circuit')}</div>
     </details>
     <p class="entry-error" role="alert" id="plan-error"></p>
-    ${button(sessionID ? 'Save this workout' : 'Save routine', 'plan-save', null, 'primary')}`;
+    ${builder.progression ? `<p class="builder-hint">Saving applies only the selected exercise’s working targets.</p>
+      ${button('Apply edited targets once', 'plan-save', 'once', 'primary')}
+      ${builder.canUpdate ? button('Update routine with edits', 'plan-save', 'routine') : ''}` :
+      button(sessionID ? 'Save this workout' : 'Save routine', 'plan-save', null, 'primary')}`;
 }
 
 export function amount(target, unit, precision = 2) {

@@ -18,21 +18,25 @@ final class ExerciseProgressionTests: XCTestCase {
         let first = PerformedSet(plannedExerciseID: row.id, order: 1, repetitions: .separateSides(left: 8, right: 7),
             amount: planned.target, recordedAt: finished)
         let second = PerformedSet(plannedExerciseID: row.id, order: 2, repetitions: .perSide(8),
-            amount: planned.target, recordedAt: finished, actualRIR: 1)
+            amount: planned.target, recordedAt: finished)
         records.sessions = [WorkoutSession(localDate: date, timeZoneIdentifier: "GMT", startedAt: date.calendarDate,
             scheduleID: nil, routineSnapshot: version, completedAt: finished, performedSets: [first, second])]
 
         func suggestion() -> ProgressionSuggestion { ExerciseProgression.suggest(row, in: version, records: records) }
-        XCTAssertEqual(suggestion().action, .hold)
-        XCTAssertTrue(suggestion().reason.contains("1 of 2"))
+        XCTAssertEqual(suggestion().action, .learning)
+        records.sessions.append(WorkoutSession(localDate: date.offset(-1), timeZoneIdentifier: "GMT",
+            startedAt: date.offset(-1).calendarDate, scheduleID: nil, routineSnapshot: version,
+            completedAt: date.offset(-1).calendarDate.addingTimeInterval(60), performedSets: [first, second]))
+        XCTAssertTrue(suggestion().reason.contains("Add one rep"))
         records.sessions[0].performedSets[0].repetitions = .separateSides(left: 8, right: 8)
+        records.sessions[1].performedSets[0].repetitions = .separateSides(left: 8, right: 8)
         XCTAssertEqual(suggestion().action, .advance)
-        XCTAssertTrue(suggestion().reason.contains("only 1 of 2"))
         XCTAssertEqual(suggestion().changes[0]?.target, .assistance(try XCTUnwrap(Mass(5))))
-        records.sessions[0].performedSets[0].actualRIR = 2
+        XCTAssertNotNil(suggestion().warning)
+        records.sessions[0].performedSets[0].actualRIR = 1
         XCTAssertEqual(suggestion().action, .hold)
-        XCTAssertTrue(suggestion().reason.contains("recorded RIR missed"))
-        records.sessions[0].performedSets[1].actualRIR = 3
+        XCTAssertTrue(suggestion().reason.contains("excessive effort"))
+        records.sessions[0].performedSets[0].actualRIR = 3
         records.progressionRules = [ExerciseProgressionRule(variant: variant.key, rule: ProgressionRule(mode: .assistance, step: 20))]
         XCTAssertTrue(suggestion().reason.contains("full available increment"))
 
@@ -40,7 +44,7 @@ final class ExerciseProgressionTests: XCTestCase {
             measurement: variant.measurement), prescription: planned)
         XCTAssertNil(records.progressionRule(for: changed))
         records.progressionRules?.append(ExerciseProgressionRule(variant: changed.variant.key, rule: rule))
-        XCTAssertTrue(ExerciseProgression.suggest(changed, in: version, records: records).reason.contains("same exercise, equipment, and measurement"))
+        XCTAssertEqual(ExerciseProgression.suggest(changed, in: version, records: records).action, .learning)
     }
 
     func testHistoryEditsRefreshTheSuggestionAndAcceptancePreservesScheduleAndHistory() async throws {
@@ -70,6 +74,9 @@ final class ExerciseProgressionTests: XCTestCase {
             }
             _ = try store.saveHistory(draft, at: now, timeZone: .gmt)
             let old = try XCTUnwrap(store.records.sessions.first)
+            var previous = draft
+            previous.start = start.addingTimeInterval(-86_400)
+            _ = try store.saveHistory(previous, at: now, timeZone: .gmt)
             func suggestion() -> ProgressionSuggestion { ExerciseProgression.suggest(row, in: version, records: store.records) }
             let reviewed = suggestion()
             XCTAssertEqual(reviewed.action, .advance)
@@ -79,18 +86,31 @@ final class ExerciseProgressionTests: XCTestCase {
             correction.exercises[0].sets[1].input.reps = "5"
             _ = try store.saveHistory(correction, at: now, timeZone: .gmt)
             XCTAssertThrowsError(try store.acceptProgression(reviewed, versionID: version.id, rowID: row.id))
-            let adjusted = suggestion()
-            XCTAssertEqual(adjusted.action, .adjust)
-            try store.acceptProgression(adjusted, versionID: version.id, rowID: row.id)
+            XCTAssertEqual(suggestion().action, .hold)
+            correction.exercises[0].sets[1].input.reps = "8"
+            _ = try store.saveHistory(correction, at: now, timeZone: .gmt)
+            let refreshed = suggestion()
+            try store.acceptProgression(refreshed, versionID: version.id, rowID: row.id, scope: .once)
+            let next = try store.startSession(versionID: version.id, at: now, timeZone: .gmt)
+            XCTAssertEqual(next.plan.exercises[0].prescription.target, .weight(try XCTUnwrap(Mass(112.5))))
+            XCTAssertEqual(next.routineSnapshot, version)
+            XCTAssertTrue(store.records.progressionDecisions?.isEmpty == true)
+            try store.finishSession(next.id, early: true, at: now)
+            for offset in [1, 2] {
+                var normal = draft
+                normal.start = start.addingTimeInterval(Double(offset) * 86_400)
+                _ = try store.saveHistory(normal, at: normal.start.addingTimeInterval(3600), timeZone: .gmt)
+            }
+            try store.acceptProgression(suggestion(), versionID: version.id, rowID: row.id)
             let reopened = try TrainingRepository(files: files, catalog: [press])
             let current = try XCTUnwrap(reopened.records.currentRoutines.first)
             XCTAssertEqual(current.revision, 2)
-            XCTAssertEqual(current.exercises[0].prescription.target, .weight(try XCTUnwrap(Mass(87.5))))
+            XCTAssertEqual(current.exercises[0].prescription.target, .weight(try XCTUnwrap(Mass(112.5))))
             XCTAssertEqual(current.exercises[0].warmUps, row.warmUps)
             XCTAssertEqual(current.exercises[0].additionalWorkingSets, row.additionalWorkingSets)
             XCTAssertEqual(reopened.records.schedule.first?.routineVersionID, version.id)
             XCTAssertEqual(reopened.records.sessions.first?.routineSnapshot, version)
-            XCTAssertTrue(ExerciseProgression.suggest(current.exercises[0], in: current, records: reopened.records).reason.contains("different targets"))
+            XCTAssertEqual(ExerciseProgression.suggest(current.exercises[0], in: current, records: reopened.records).action, .learning)
         }
     }
 }

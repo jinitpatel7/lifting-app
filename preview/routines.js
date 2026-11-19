@@ -1,11 +1,12 @@
 import { isDay, kilogramsPerPound, localDayKey } from './storage.js';
-import { applyWorkoutChange, reconcileLog, repeatLog, routineFromLog, sessionPlan, variantKey, workoutLog } from './workout-log.js';
+import { applyWorkoutChange, reconcileLog, rememberScoreSlots, repeatLog, routineFromLog, sessionPlan, variantKey, workoutLog } from './workout-log.js';
 import { applyScheduleChange, scheduleEntry, scheduleVersion } from './schedule.js';
 import { invalidateHistoryPredictions, saveHistoryEntry } from './history.js';
-import { validateAnalytics } from './analytics.js';
-import { suggestProgression, validateProgressionRule } from './progression.js';
+import { programContext, validateAnalytics } from './analytics.js';
+import { progressionWorkingSets, suggestProgression, validateProgressionRule } from './progression.js';
 import { captureForecasts } from './forecast.js';
 import { validEnergyInput } from './workout-energy.js';
+import { validateScoreWeights } from './workout-score.js';
 export { sessionPlan } from './workout-log.js';
 
 const storageKey = 'setline-personal-routines-v1';
@@ -74,7 +75,8 @@ function setPrescription(set, measurement, unit, sessionOnly) {
       target = { kind: measurement, value: physicalLoad };
     }
   }
-  return { id: set.id, sets, reps, target, rest, structure: set.structure, amrap, effort };
+  return { id: set.id, sets, reps, target, rest, structure: set.structure, amrap, effort,
+    ...(reps && set.progressionFloor != null ? { progressionFloor: Math.min(set.progressionFloor, reps.minimum) } : {}) };
 }
 
 export function validatedPlan(draft, unit, sessionOnly = false) {
@@ -154,12 +156,23 @@ export function createRoutineStore(storage) {
 
   function addSession(data, snapshot, referenceID = null, scheduleID = null, source = null, now = new Date()) {
     if (data.sessions.some(session => !session.completedAt)) throw new Error('Finish the active workout before starting another.');
-    const session = { id: uuid(), snapshot, override: null, referenceID, scheduleID, startedAt: now.toISOString(),
+    const original = source && data.routines.find(routine => routine.id === snapshot.routineID)?.versions.find(version => version.id === snapshot.id);
+    const exactRepeat = source && original && JSON.stringify(original.exercises) === JSON.stringify(snapshot.exercises);
+    const queued = !source || exactRepeat ? (data.progressionDecisions ?? []).filter(item => item.versionID === snapshot.id && item.working) : [];
+    const eligible = queued.length && programContext(data, { localDate: localDayKey(now), scheduleID }).kind !== 'deload';
+    const effective = eligible ? { ...snapshot, exercises: snapshot.exercises.map(row => {
+      const decision = queued.find(item => item.rowID === row.id);
+      return decision ? { ...row, work: decision.working } : row;
+    }) } : snapshot;
+    const session = { id: uuid(), snapshot, intendedPlan: eligible ? effective : null,
+      override: eligible ? effective : null, referenceID, scheduleID, startedAt: now.toISOString(),
       localDate: localDayKey(now), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, completedAt: null,
       results: [], routineBaseID: source?.routineBaseID ?? snapshot.id };
-    session.log = source ? repeatLog(workoutLog(source)) : workoutLog(session);
+    session.log = source && !eligible ? repeatLog(workoutLog(source)) : workoutLog(session);
+    rememberScoreSlots(session);
     captureForecasts(data, session, now);
     data.sessions.push(session);
+    if (eligible) data.progressionDecisions = data.progressionDecisions.filter(item => !queued.includes(item));
   }
 
   function active(data, id) {
@@ -199,17 +212,34 @@ export function createRoutineStore(storage) {
         if (rule) validateProgressionRule(row, rule);
         const variant = variantKey(row);
         data.progressionRules = (data.progressionRules ?? []).filter(item => item.variant !== variant);
+        data.disabledProgression = (data.disabledProgression ?? []).filter(key => key !== variant);
         if (rule) data.progressionRules.push({ variant, rule });
+        else data.disabledProgression.push(variant);
       });
     },
-    acceptProgression(routineID, versionID, rowID, reviewed) {
+    acceptProgression(routineID, versionID, rowID, reviewed, scope = 'routine', editedDraft = null, unit = 'kg') {
       return save(data => {
         const { routine, version, row } = progressionSlot(data, routineID, versionID, rowID);
         const current = suggestProgression(data, version, row);
-        if (!current.changes.length || JSON.stringify(current) !== JSON.stringify(reviewed)) {
+        if (!current.changes.length || current.fingerprint !== reviewed.fingerprint) {
           throw new Error('The suggestion changed. Reopen the review before accepting it.');
         }
-        const work = row.work.map((plan, index) => current.changes.find(change => change.index === index)?.prescription ?? plan);
+        if (!['once', 'routine', 'dismiss'].includes(scope)) throw new Error('Choose how to apply the recommendation.');
+        if (scope === 'routine' && newest(routine).id !== versionID) throw new Error('Review the current routine version to update it.');
+        let work = progressionWorkingSets(row, current);
+        if (editedDraft && scope !== 'dismiss') {
+          const edited = validatedPlan(editedDraft, unit).exercises.find(entry => entry.id === rowID);
+          if (!edited || variantKey(edited) !== variantKey(row)) throw new Error('Keep the original exercise and equipment when editing targets.');
+          work = edited.work;
+        }
+        if (work.reduce((sum, block) => sum + block.sets, row.warm.reduce((sum, block) => sum + block.sets, 0)) > 10_000) {
+          throw new Error('Reduce this exercise’s set count before saving the recommendation.');
+        }
+        data.progressionDecisions = (data.progressionDecisions ?? []).filter(item => item.versionID !== versionID || item.rowID !== rowID);
+        if (scope !== 'routine') {
+          data.progressionDecisions.push({ versionID, rowID, fingerprint: current.fingerprint, working: scope === 'once' ? work : null });
+          return;
+        }
         const exercises = version.exercises.map(entry => entry.id === rowID ? { ...row, work } : entry);
         routine.versions.push({ ...version, exercises, id: uuid(), revision: version.revision + 1, createdAt: new Date().toISOString() });
       });
@@ -267,6 +297,9 @@ export function createRoutineStore(storage) {
     saveAnalytics(settings) {
       return save(data => { data.analyticsSettings = validateAnalytics(settings); });
     },
+    saveScoreWeights(weights) {
+      return save(data => { data.scoreWeights = validateScoreWeights(weights); });
+    },
     startScheduled(id, date, now = new Date()) {
       return save(data => {
         const today = localDayKey(now);
@@ -293,6 +326,8 @@ export function createRoutineStore(storage) {
           variantKey(plan.exercises.find(row => row.id === result.exerciseID)))) {
           throw new Error('Keep the exercise and measurement for sets already logged in this workout.');
         }
+        session.log ??= workoutLog(session);
+        rememberScoreSlots(session);
         session.override = { ...prior, ...plan, categoryID: prior.categoryID };
         reconcileLog(session, prior, session.override);
         captureForecasts(data, session, new Date());
@@ -301,14 +336,18 @@ export function createRoutineStore(storage) {
     prepare(sessionID) {
       return save(data => {
         const session = active(data, sessionID);
-        if (session.log) return;
-        session.results = session.results.map(result => result.id ? result : { ...result, id: uuid() });
-        session.log = workoutLog(session);
+        if (!session.log) {
+          session.results = session.results.map(result => result.id ? result : { ...result, id: uuid() });
+          session.log = workoutLog(session);
+        }
+        rememberScoreSlots(session);
       });
     },
     logChange(sessionID, change, unit, now) {
       return save(data => {
         const session = active(data, sessionID);
+        session.log ??= workoutLog(session);
+        rememberScoreSlots(session);
         const performed = new Set([...(session.forecastPerformedSlots ?? []), ...session.results.map(result => result.exerciseID)]);
         applyWorkoutChange(session, change, unit, now);
         session.results.forEach(result => performed.add(result.exerciseID));
@@ -347,7 +386,7 @@ export function createRoutineStore(storage) {
 
 function progressionSlot(data, routineID, versionID, rowID) {
   const routine = data.routines.find(item => item.id === routineID);
-  const version = routine && newest(routine);
+  const version = routine?.versions.find(item => item.id === versionID);
   const row = version?.exercises.find(item => item.id === rowID);
   if (version?.id !== versionID || !row) throw new Error('This routine changed. Reopen the progression review.');
   return { routine, version, row };

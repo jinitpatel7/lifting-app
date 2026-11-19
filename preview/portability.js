@@ -1,7 +1,8 @@
 import { isDay } from './storage.js';
 import { equipmentName, dayOf, historyRows } from './history.js';
-import { sessionPlan } from './workout-log.js';
+import { sessionPlan, variantKey } from './workout-log.js';
 import { validateAnalytics } from './analytics.js';
+import { validateScoreWeights } from './workout-score.js';
 
 export const dataFileLimit = 20 * 1024 * 1024;
 const profileKey = 'setline-restored-profile-v1';
@@ -67,6 +68,7 @@ function validatePlan(plan, named = true) {
         (block.structure == null || ['straight', 'dropSet', 'restPause'].includes(block.structure)), 'A set prescription is invalid.');
       if (block.reps != null) require(!['duration', 'distance'].includes(row.measurement) && whole(block.reps.minimum, 1, Number.MAX_SAFE_INTEGER) &&
         whole(block.reps.maximum, block.reps.minimum, Number.MAX_SAFE_INTEGER), 'A rep range is invalid.');
+      require(block.progressionFloor == null || (block.reps && whole(block.progressionFloor, 1, block.reps.minimum)), 'A progression rep floor is invalid.');
       if (block.effort != null) require(block.effort.kind === 'failure' || (block.effort.kind === 'rir' && whole(block.effort.value, 0, Number.MAX_SAFE_INTEGER)) ||
         (block.effort.kind === 'rpe' && nonnegative(block.effort.value) && block.effort.value >= 1 && block.effort.value <= 10), 'A target effort is invalid.');
     }
@@ -107,6 +109,21 @@ function validatePlans(plans) {
     require(Array.isArray(plans.analyticsSettings.visible) && Array.isArray(plans.analyticsSettings.dashboard), 'Analytics settings are invalid.');
     validateAnalytics(plans.analyticsSettings);
   }
+  if (plans.scoreWeights != null) validateScoreWeights(plans.scoreWeights);
+  if (plans.disabledProgression != null) require(Array.isArray(plans.disabledProgression) &&
+    plans.disabledProgression.every(key => typeof key === 'string'), 'Disabled progression entries are invalid.');
+  if (plans.progressionDecisions != null) {
+    require(Array.isArray(plans.progressionDecisions), 'Progression decisions are invalid.');
+    const seen = new Set();
+    for (const decision of plans.progressionDecisions) {
+      const version = versions.get(decision?.versionID);
+      const row = version?.exercises.find(item => item.id === decision?.rowID);
+      const key = JSON.stringify([decision?.versionID, decision?.rowID]);
+      require(row && !seen.has(key) && typeof decision.fingerprint === 'string', 'A progression decision has an invalid exercise or routine version.');
+      seen.add(key);
+      if (decision.working != null) validatePlan({ ...version, exercises: [{ ...row, work: decision.working }], groups: [] });
+    }
+  }
   if (plans.progressionRules != null) require(Array.isArray(plans.progressionRules) && plans.progressionRules.every(item =>
     object(item) && typeof item.variant === 'string' && object(item.rule)), 'Progression settings are invalid.');
   unique(plans.weekdayRules ?? [], 'weekday assignments');
@@ -122,6 +139,23 @@ function validatePlans(plans) {
   for (const session of plans.sessions) {
     validatePlan(session.snapshot, false);
     if (session.override != null) validatePlan(session.override, false);
+    if (session.intendedPlan != null) {
+      validatePlan(session.intendedPlan);
+      require(session.intendedPlan.id === session.snapshot.id && session.intendedPlan.routineID === session.snapshot.routineID &&
+        session.intendedPlan.exercises.length === session.snapshot.exercises.length &&
+        session.intendedPlan.exercises.every((row, index) => row.id === session.snapshot.exercises[index].id &&
+          variantKey(row) === variantKey(session.snapshot.exercises[index])), 'A workout has an invalid intended plan.');
+    }
+    if (session.scoreSlots != null) {
+      const entries = (session.intendedPlan ?? session.snapshot).exercises;
+      require(object(session.scoreSlots) && Object.entries(session.scoreSlots).every(([id, slots]) => {
+        const row = entries.find(item => item.id === id);
+        return row && Array.isArray(slots) && slots.every(uid) &&
+          slots.length <= row.work.reduce((count, block) => count + block.sets, 0);
+      }), 'A workout has invalid score slots.');
+      const ids = Object.values(session.scoreSlots).flat();
+      require(new Set(ids).size === ids.length, 'A scored set slot was repeated.');
+    }
     require(dateTime(session.startedAt) && isDay(dayOf(session)) && (session.completedAt == null ||
       (dateTime(session.completedAt) && Date.parse(session.completedAt) >= Date.parse(session.startedAt))) &&
       (!session.scheduleID || schedules.has(session.scheduleID)) && (!session.referenceID || sessions.has(session.referenceID)) &&

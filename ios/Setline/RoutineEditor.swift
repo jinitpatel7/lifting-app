@@ -322,6 +322,7 @@ private struct SetPlanDraft: Identifiable {
     var amrap = false
     private var originalTarget: SetAmount?
     private var originalAmount = ""
+    private var progressionFloor: Int?
 
     init(warmUp: Bool = false) { if warmUp { count = "1" } }
 
@@ -344,6 +345,7 @@ private struct SetPlanDraft: Identifiable {
         }
         originalTarget = prescription.target
         originalAmount = amount
+        progressionFloor = prescription.progressionFloor
     }
 
     mutating func clearTarget() {
@@ -381,12 +383,67 @@ private struct SetPlanDraft: Identifiable {
             effort = .rpe(value)
         }
         let target = amount == originalAmount && originalTarget != nil ? originalTarget : try choice.amount(amount, unit: unit)
+        let floor = reps.flatMap { range in progressionFloor.map { min($0, range.minimum) } }
         let result = SetPrescription(sets: sets, reps: reps, target: target, repsInReserve: rir, restSeconds: restSeconds,
-                                     structure: structure == .straight ? nil : structure, amrap: choice.hasReps && amrap ? true : nil, effort: effort)
+                                     structure: structure == .straight ? nil : structure, amrap: choice.hasReps && amrap ? true : nil,
+                                     effort: effort, progressionFloor: floor)
         guard result.isValid(for: measurement, allowsUntargetedReps: allowsUntargetedReps) else {
             throw TrainingDataError.invalidRecord("Check the rep range, target, rest, and effort for each set block.")
         }
         return result
+    }
+}
+
+struct ProgressionTargetEditor: View {
+    let model: TrainingModel
+    let unit: WeightUnit
+    let version: RoutineVersion
+    let row: PlannedExercise
+    let suggestion: ProgressionSuggestion
+    let accepted: (ProgressionScope) -> Void
+    @State private var draft: ExercisePlanDraft
+    @State private var error: String?
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: TrainingModel, unit: WeightUnit, version: RoutineVersion, row: PlannedExercise,
+         suggestion: ProgressionSuggestion, accepted: @escaping (ProgressionScope) -> Void) {
+        self.model = model
+        self.unit = unit
+        self.version = version
+        self.row = row
+        self.suggestion = suggestion
+        self.accepted = accepted
+        _draft = State(initialValue: ExercisePlanDraft(row.replacingWorkingSets(suggestion.workingSets(for: row)), unit: unit))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Suggested working targets") {
+                    ForEach($draft.work) { $block in SetBlockEditor(block: $block, choice: draft.choice, unit: unit) }
+                    if let error = error ?? model.storageError { Text(error).foregroundStyle(Palette.red) }
+                }
+                Section {
+                    Button("Apply edited targets once") { save(.once) }
+                    if model.records.currentRoutines.contains(where: { $0.id == version.id }) {
+                        Button("Update routine with edits") { save(.routine) }
+                    }
+                }
+            }
+            .navigationTitle("Edit recommendation")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+    }
+
+    private func save(_ scope: ProgressionScope) {
+        do {
+            error = nil
+            let edited = try draft.planned(unit: unit, allowsUntargetedReps: false)
+            if model.updateUserData({ try $0.acceptProgression(suggestion, versionID: version.id, rowID: row.id, scope: scope, edited: edited) }) {
+                accepted(scope)
+                dismiss()
+            }
+        } catch { self.error = error.localizedDescription }
     }
 }
 

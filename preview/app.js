@@ -6,7 +6,7 @@ import { blankSet, createRoutineStore, draftExercise, makeDraft, newGroup, newes
 import { exerciseOptions, renderPersonalRoutines, renderPlan, renderRoutineBuilder, renderVersions } from './routine-ui.js';
 import { renderWorkout, updateWorkoutFields, workoutStep } from './workout-ui.js';
 import { clockText, restRemaining, workoutTimes } from './workout-tools.js';
-import { loadKey } from './workout-log.js';
+import { loadKey, variantKey } from './workout-log.js';
 import { offsetDay, recentMuscles, scheduleEntries, scheduleWindow, statusLabels } from './schedule.js';
 import { readinessFields, renderMove, renderProgramWeek, renderReadiness, renderSchedulePlanner, rotationSteps, scheduleSummary } from './schedule-ui.js';
 import { comparisonScopes, dayOf, historyDraft, newHistorySet, priorComparable, sessionsByDate } from './history.js';
@@ -16,12 +16,12 @@ import { programContext } from './analytics.js';
 import { renderBodyweight, renderWeightTarget } from './bodyweight-ui.js';
 import { createDevicePhotoStore, photoDates, requestDevicePhoto } from './device-photos.js';
 import { cancelPhotoPreviews, paintPhotoPreviews, renderManagePhotos, renderPhotoComparison } from './progress-photos-ui.js';
-import { readProgressionRule, renderProgressionDetail, renderProgressionList, updateProgressionFields } from './progression-ui.js';
-import { progressionRule, suggestProgression } from './progression.js';
+import { readProgressionRule, renderProgressionDetail, renderProgressionList, renderWorkoutRecommendations, updateProgressionFields } from './progression-ui.js';
+import { progressionRule, progressionWorkingSets, suggestProgression } from './progression.js';
 import { renderForecastEvaluation, renderForecastPreview } from './forecast-ui.js';
 import { renderEnergyEditor, renderScore, renderWeeklyRecap } from './recap-ui.js';
 import { weeklyRecap } from './weekly-recap.js';
-import { dailyWorkoutScore } from './workout-score.js';
+import { dailyWorkoutScore, defaultScoreWeights } from './workout-score.js';
 import { createProfileStorage } from './portability.js';
 import { createPortabilityUI } from './portability-ui.js';
 
@@ -306,7 +306,7 @@ function todayPage() {
   };
   const side = state.sampleMode ? (routine ? muscleMap(routine) + bodyweight() : bodyweight() + muscleMap(null)) :
     bodyweight() + readinessCard() + renderMuscleMap(anatomy, muscleInvolvement(scheduledExercises), state.muscleRegion, context) +
-    renderScore(dailyWorkoutScore(state.date, state.planRecords.sessions.filter(session => dayOf(session) === state.date), scheduled));
+    renderScore(dailyWorkoutScore(state.date, state.planRecords.sessions.filter(session => dayOf(session) === state.date), scheduled, undefined, state.planRecords.scoreWeights));
   const cards = scheduled.map(entry => {
     const version = personalVersion(entry.versionID);
     if (!version) return '';
@@ -318,7 +318,8 @@ function todayPage() {
       ${summary.block ? `<p class="chart-subtitle">${escapeHTML(summary.block.name)} · Week ${summary.index + 1} · ${summary.kind}${summary.notes ? ' · ' + escapeHTML(summary.notes) : ''}</p>` : ''}
       ${actionable || entry.status === 'active' ? renderPlan(version, state.unit) : ''}
       ${['planned', 'rescheduled'].includes(entry.status) ? renderForecastPreview(state.planRecords, version, entry, state.unit, dateLabel) : ''}
-      ${actionable && programContext(state.planRecords, { localDate: entry.date, scheduleID: entry.id }).kind !== 'deload' && newest(personalRoutine(version.routineID)).id === version.id ? `<button type="button" class="secondary" data-action="progression-open" data-value="${version.routineID}">Review progression</button>` : ''}
+      ${actionable && programContext(state.planRecords, { localDate: entry.date, scheduleID: entry.id }).kind !== 'deload' ?
+        renderWorkoutRecommendations(state.planRecords, version, state.unit) : ''}
       ${(actionable && (!entry.rotationID || entry.date === today())) || entry.status === 'active' ? `<button type="button" class="primary" data-action="log-start-scheduled" data-value="${entry.key}">${label}</button>` : ''}
       ${actionable ? `<div class="schedule-nav"><button type="button" class="secondary" data-action="schedule-move" data-value="${entry.key}">Move session</button>
       <button type="button" class="secondary" data-action="schedule-skip" data-value="${entry.key}">Skip session</button></div>` : ''}</article>`;
@@ -404,6 +405,15 @@ function settingsPage() {
         ${segment('unit', [['kg', 'Kilograms'], ['lb', 'Pounds']], state.unit)}
       </section>
       <section class="surface settings-card settings-note">
+        <details><summary>Workout score weights</summary>
+          <form id="score-weights" class="stack">
+            ${Object.entries(defaultScoreWeights).map(([key, value]) =>
+              `<label>${{ completion: 'Prescribed work completed', targets: 'Targets met', effort: 'Effort alignment' }[key]}<input name="${key}" type="number" min="0" max="100" step="any" required value="${Number(state.planRecords.scoreWeights?.[key] ?? value)}"></label>`).join('')}
+            <button class="secondary" type="submit">Save score weights</button><p id="score-weights-error" class="builder-hint" role="status"></p>
+          </form>
+        </details>
+      </section>
+      <section class="surface settings-card settings-note">
         <div class="section-label"><span class="tile-icon small">${icon('info', 19)}</span><h2>Local data</h2></div>
         <p>Routines, workouts, bodyweight entries, and preferences are saved in this browser. Sample data has its own preview and storage.</p>
         <div class="builder-actions"><button class="secondary" data-action="data-open">Data portability</button><button class="secondary" data-action="data-account">Account storage</button></div>
@@ -479,9 +489,9 @@ function showProgressionList(trigger, routineID = progressionRoutineID) {
   focusProgressionTitle();
 }
 
-function showProgressionReview(routineID, rowID, trigger, ruleOpen = false) {
+function showProgressionReview(routineID, rowID, trigger, ruleOpen = false, versionID = null) {
   const routine = personalRoutine(routineID);
-  const version = routine && newest(routine);
+  const version = versionID ? routine?.versions.find(item => item.id === versionID) : routine && newest(routine);
   const row = version?.exercises.find(item => item.id === rowID);
   if (!row) return showProgressionList(trigger);
   const suggestion = suggestProgression(state.planRecords, version, row);
@@ -502,23 +512,30 @@ function focusProgressionTitle() {
 function handleProgressionAction(action, value, focus) {
   if (action === 'progression-open') return showProgressionList(dialog.open ? dialogTrigger : focus, value ?? '');
   if (action === 'progression-list') return showProgressionList(dialogTrigger);
-  if (action === 'progression-review') return showProgressionReview(...value.split(':'), dialogTrigger);
+  if (action === 'progression-review') {
+    const [routineID, rowID, versionID] = value.split(':');
+    return showProgressionReview(routineID, rowID, dialog.open ? dialogTrigger : focus, false, versionID);
+  }
   if (!progressionReview) return;
   const { routineID, version, row, suggestion } = progressionReview;
   if (action === 'progression-override') {
     dialogTrigger = null;
     dialog.close();
     selectTab('routines');
-    return openBuilder(newest(personalRoutine(routineID)), null, row.id);
+    const edited = { ...version, exercises: version.exercises.map(entry =>
+      entry.id === row.id ? { ...entry, work: progressionWorkingSets(row, suggestion) } : entry) };
+    return openBuilder(edited, null, row.id, progressionReview);
   }
+  const scope = { 'progression-once': 'once', 'progression-accept': 'routine', 'progression-dismiss': 'dismiss' }[action];
+  if (!scope) return;
   try {
-    state.planRecords = routineStore.acceptProgression(routineID, version.id, row.id, suggestion);
+    state.planRecords = routineStore.acceptProgression(routineID, version.id, row.id, suggestion, scope);
     render();
-    showProgressionReview(routineID, row.id, dialogTrigger);
+    showProgressionReview(routineID, row.id, dialogTrigger, false, scope === 'routine' ? null : version.id);
     const status = document.createElement('p');
     status.className = 'builder-hint';
     status.setAttribute('role', 'status');
-    status.textContent = 'Suggestion saved as a new routine version.';
+    status.textContent = { routine: 'Recommendation saved as a new routine version.', once: 'Queued for the next matching workout.', dismiss: 'Recommendation dismissed.' }[scope];
     dialog.querySelector('.progression-detail').prepend(status);
     announce(status.textContent);
   } catch (error) { dialog.querySelector('#progression-error').textContent = error.message; }
@@ -868,7 +885,12 @@ function showSession(trigger) {
   showDialog('active', routine.name, `<p class="dialog-description">Active workout preview · Sample routine</p><ul class="active-exercises">${routine.exercises.map(exercise => `<li><strong>${exercise.name}</strong><span>${exercise.sets} × ${exercise.reps} reps</span></li>`).join('')}</ul><p class="dialog-description">Switch to personal mode to record a workout.</p><button class="secondary end-button" type="button" data-action="end">End workout preview</button>`, trigger);
 }
 
-function workoutMarkup(session) { return renderWorkout(session, state.planRecords, catalog, state.exercises, state.unit, dateLabel); }
+function workoutMarkup(session) {
+  const version = personalRoutine(session.snapshot.routineID)?.versions.find(item => item.id === session.snapshot.id);
+  return renderWorkout(session, state.planRecords, catalog, state.exercises, state.unit, dateLabel) +
+    (programContext(state.planRecords, session).kind !== 'deload' ? renderWorkoutRecommendations(state.planRecords, version, state.unit,
+      row => sessionPlan(session).exercises.some(entry => entry.id === row.id && variantKey(entry) === variantKey(row))) : '');
+}
 
 function paintWorkoutClocks() {
   const session = activePersonal();
@@ -930,7 +952,10 @@ function finishLogger(id, early) {
 
 function showFinishedWorkout(session) {
   if (!session) return;
-  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit, dateLabel, state.user.entries) +
+  const version = personalRoutine(session.snapshot.routineID)?.versions.find(item => item.id === session.snapshot.id);
+  showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit, dateLabel, state.user.entries, state.planRecords.scoreWeights) +
+    (programContext(state.planRecords, session).kind !== 'deload' ? renderWorkoutRecommendations(state.planRecords, version, state.unit,
+      row => session.results.some(set => set.exerciseID === row.id)) : '') +
     `<div class="builder-actions"><button type="button" class="secondary" data-action="data-summary" data-value="${session.id}">Share workout summary</button><button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>
       ${state.planRecords.routines.length ? `<button type="button" class="secondary" data-action="progression-open" data-value="${personalRoutine(session.snapshot.routineID)?.id ?? ''}">Review progression</button>` : ''}</div>`, '.active-bar');
 }
@@ -1096,8 +1121,9 @@ function selectTab(tab, focus = false) {
   render({ scroll: true, focus: focus ? '#main' : null });
 }
 
-function openBuilder(version, sessionID = null, rowID = null) {
-  state.builder = { draft: makeDraft(version, state.unit), expanded: new Set(rowID ? [rowID] : []), search: '', sessionID };
+function openBuilder(version, sessionID = null, rowID = null, progression = null) {
+  state.builder = { draft: makeDraft(version, state.unit), expanded: new Set(rowID ? [rowID] : []), search: '', sessionID, progression,
+    canUpdate: progression && newest(personalRoutine(progression.routineID)).id === version.id };
   render({ scroll: true, focus: rowID ? null : '#main' });
   if (rowID) main.querySelector(`[data-builder-expand="${rowID}"] > summary`)?.focus();
 }
@@ -1163,6 +1189,12 @@ function handlePlanAction(action, value, focus) {
         return openBuilder(sessionPlan(session), session.id);
       }
       case 'plan-save':
+        if (builder.progression) {
+          const { routineID, version, row, suggestion } = builder.progression;
+          state.planRecords = routineStore.acceptProgression(routineID, version.id, row.id, suggestion, value, draft, state.unit);
+          closeBuilder();
+          return announce(value === 'once' ? 'Edited recommendation queued for the next matching workout.' : 'Edited recommendation saved as a new routine version.');
+        }
         state.planRecords = builder.sessionID ? routineStore.editSession(builder.sessionID, draft, state.unit) : routineStore.saveRoutine(draft, state.unit);
         if (!builder.sessionID && state.routineCategory) state.routineCategory = draft.categoryID;
         closeBuilder();
@@ -1618,6 +1650,17 @@ dialog.addEventListener('input', event => {
     dialog.querySelector('#plan-session-error').textContent = '';
   } catch (error) { planError(error); }
 });
+main.addEventListener('submit', event => {
+  if (event.target.id !== 'score-weights') return;
+  event.preventDefault();
+  const output = event.target.querySelector('#score-weights-error');
+  try {
+    const values = new FormData(event.target);
+    const weights = Object.fromEntries(Object.keys(defaultScoreWeights).map(key => [key, Number(values.get(key))]));
+    state.planRecords = routineStore.saveScoreWeights(weights);
+    output.textContent = 'Score weights saved.';
+  } catch (error) { output.textContent = error.message; }
+});
 dialog.addEventListener('submit', event => {
   if (dialogAction === 'portability') { void portability.submit(event); return; }
   if (dialogAction === 'energy' && event.target.id === 'energy-form') {
@@ -1632,7 +1675,7 @@ dialog.addEventListener('submit', event => {
     try {
       const rule = readProgressionRule(event.target, state.unit, progressionRule(state.planRecords, row));
       state.planRecords = routineStore.saveProgressionRule(routineID, version.id, row.id, rule);
-      showProgressionReview(routineID, row.id, dialogTrigger, true);
+      showProgressionReview(routineID, row.id, dialogTrigger, true, version.id);
       dialog.querySelector('#progression-form button')?.focus();
       announce('Progression rule saved.');
     } catch (error) { dialog.querySelector('#progression-rule-error').textContent = error.message; }

@@ -42,6 +42,14 @@ export function repeatLog(log) {
     sets: exercise.sets.map(set => blank(set.purpose, set.plan)) })) };
 }
 
+export function rememberScoreSlots(session) {
+  if (session.scoreSlots || !session.log) return;
+  session.scoreSlots = Object.fromEntries((session.intendedPlan ?? session.snapshot).exercises.map(row => [row.id,
+    (session.log.exercises.find(entry => entry.id === row.id)?.sets ?? [])
+      .filter(set => set.purpose === 'working' && set.plan).map(set => set.id)
+      .slice(0, row.work.reduce((count, plan) => count + plan.sets, 0))]));
+}
+
 function number(text, name, minimum, integer = false) {
   const value = Number(String(text).trim().replace(',', '.'));
   if (!String(text).trim() || !Number.isFinite(value) || value < minimum || (integer && !Number.isSafeInteger(value))) {
@@ -245,8 +253,17 @@ export function reconcileLog(session, prior, next) {
     if (!log || variantKey(old) !== variantKey(row)) return fromPlan(row);
     if (JSON.stringify([old.warm, old.work]) !== JSON.stringify([row.warm, row.work])) {
       const replacements = fromPlan(row).sets;
-      log.sets = log.sets.flatMap((set, index) => set.status !== 'pending' || set.input ? [set] : replacements.slice(index, index + 1))
-        .concat(replacements.slice(log.sets.length));
+      log.sets = ['warm-up', 'working'].flatMap(purpose => {
+        const planned = replacements.filter(set => set.purpose === purpose);
+        let index = 0;
+        const existing = log.sets.filter(set => set.purpose === purpose).flatMap(set => {
+          if (!set.plan) return [set];
+          const replacement = planned[index++];
+          if (set.status !== 'pending' || set.input) return [set];
+          return replacement ? [{ ...replacement, id: set.id }] : [];
+        });
+        return [...existing, ...planned.slice(index)];
+      });
     }
     return log;
   });

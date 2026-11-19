@@ -173,26 +173,60 @@ struct WorkoutScoreBreakdown: View {
     let assessment: WorkoutScoreAssessment
 
     var body: some View {
+        switch assessment.availability {
+        case .unavailable(let reason):
+            Text(reason).font(.caption).foregroundStyle(Palette.muted)
+        case .available(let score):
+            disclosure(score)
+        }
+    }
+
+    private func disclosure(_ score: Int) -> some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 9) {
-                if case .unavailable(let reason) = assessment.availability { Text(reason).font(.subheadline) }
-                Text("Proposed breakdown").font(.subheadline.weight(.semibold))
-                ForEach(assessment.proposedComponents) { component in
+                ForEach(assessment.components) { component in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(component.name).font(.subheadline.weight(.semibold))
+                        if let points = component.points {
+                            Text("\(points.formatted(.number.precision(.fractionLength(0...1)))) / \(component.maximumPoints.formatted(.number.precision(.fractionLength(0...1)))) points")
+                                .font(.caption)
+                        } else { Text("Unavailable").font(.caption) }
                         Text(component.detail).font(.caption).foregroundStyle(Palette.muted)
                     }
                 }
+                Text("Available weights are normalized. Each set’s lowest target credit counts. Effort earns full credit within one point and tapers to zero at four points.")
+                    .font(.caption).foregroundStyle(Palette.muted)
             }.padding(.vertical, 7)
         } label: {
-            Text(title).font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+            Text("Workout score \(score) / 100").font(.subheadline.weight(.semibold)).frame(minHeight: 44)
         }.padding(.horizontal, 14).surface().tint(Palette.purple)
     }
+}
 
-    private var title: String {
-        switch assessment.availability {
-        case .unavailable: "Workout score unavailable"
-        case .available(let summary): summary
+struct WorkoutScoreSettings: View {
+    let model: TrainingModel
+    @State private var weights = WorkoutScoreWeights()
+    @State private var saved = false
+
+    var body: some View {
+        DisclosureGroup("Workout score weights") {
+            VStack(alignment: .leading, spacing: 10) {
+                field("Prescribed work completed", value: $weights.completion)
+                field("Targets met", value: $weights.targets)
+                field("Effort alignment", value: $weights.effort)
+                Button("Save score weights") { saved = model.updateUserData { try $0.saveScoreWeights(weights) } }
+                    .buttonStyle(SecondaryButton()).disabled(!weights.valid)
+                if saved { Text("Score weights saved.").font(.caption) }
+            }.padding(.vertical, 8)
+        }.padding(14).surface()
+            .onAppear { weights = model.records.scoreWeights ?? WorkoutScoreWeights() }
+            .onChange(of: weights) { saved = false }
+    }
+
+    private func field(_ label: String, value: Binding<Double>) -> some View {
+        LabeledContent(label) {
+            TextField(label, value: value, format: .number).keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing).frame(minHeight: 44)
         }
     }
 }

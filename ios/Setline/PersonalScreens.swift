@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PersonalTodayScreen: View {
-    let records: TrainingRecords
+    let model: TrainingModel
     let unit: WeightUnit
     let browse: () -> Void
     let start: (ScheduleOccurrence) -> Void
@@ -12,11 +12,11 @@ struct PersonalTodayScreen: View {
     let move: (ScheduleOccurrence) -> Void
     let skip: (ScheduleOccurrence) -> Void
     let logReadiness: (WorkoutDate) -> Void
-    let reviewProgression: (UUID) -> Void
     @Binding var selectedDay: String?
     @Binding var anchor: WorkoutDate?
     @State private var recentView = false
     @State private var pendingSkip: ScheduleOccurrence?
+    private var records: TrainingRecords { model.records }
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -114,9 +114,8 @@ struct PersonalTodayScreen: View {
                 WorkoutForecastPreview(plan: version, records: records, unit: unit, day: workout.date,
                     deload: WorkoutAnalytics.context(for: workout, records: records).kind == .deload, now: now)
             }
-            if workout.canChange, records.currentRoutines.contains(where: { $0.id == version.id }),
-               WorkoutAnalytics.context(for: workout, records: records).kind != .deload {
-                Button("Review progression") { reviewProgression(version.routineID) }.buttonStyle(SecondaryButton())
+            if workout.canChange, WorkoutAnalytics.context(for: workout, records: records).kind != .deload {
+                WorkoutRecommendations(model: model, version: version, unit: unit)
             }
             if workout.status == .active || (workout.canChange && (workout.rotationID == nil || workout.date == today)) {
                 Button(records.activeSession == nil ? "Start scheduled workout" : "Resume workout") { start(workout) }.buttonStyle(PrimaryButton())

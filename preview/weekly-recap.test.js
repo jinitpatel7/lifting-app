@@ -4,7 +4,7 @@ import { historyDraft } from './history.js';
 import { blankSet, createRoutineStore, draftExercise, makeDraft, newest } from './routines.js';
 import { weeklyRecap } from './weekly-recap.js';
 import { workoutEnergy } from './workout-energy.js';
-import { dailyWorkoutScore } from './workout-score.js';
+import { dailyWorkoutScore, prescribedTargetCredit, workoutScore } from './workout-score.js';
 
 const today = '2026-11-20';
 const date = (day, minute = '00') => new Date(`${day}T17:${minute}:00Z`);
@@ -141,18 +141,68 @@ test('a corrected incomplete session counts as complete and completed deloads re
   assert.equal(after.changes[0].current.day, '2026-11-17');
 });
 
-test('the production policy has no score regardless of recorded work and accepts a policy as a separate interface', () => {
+test('the scoring policy uses saved workout evidence and accepts a separate policy', () => {
   const { store, log } = fixture();
   const session = log('2026-11-17', 90);
-  for (const result of [dailyWorkoutScore(today, [], []), dailyWorkoutScore(session.localDate, [session], store.load().schedule)]) {
-    assert.equal(result.status, 'unavailable');
-    assert.equal(Object.hasOwn(result, 'value'), false);
-    assert.match(result.reason, /awaiting review/);
-    assert.equal(result.components.length, 4);
-    assert.ok(result.components.some(component => /deload/.test(component.detail)));
-  }
+  assert.equal(dailyWorkoutScore(today, [], []).status, 'unavailable');
+  const result = dailyWorkoutScore(session.localDate, [session], store.load().schedule);
+  assert.equal(result.score, 100);
+  assert.equal(result.components[2].points, null);
+  const draft = historyDraft(session, null, session.localDate, 'kg');
+  draft.exercises[0].sets[1].input.amount = '40';
+  store.saveHistory(draft, date(today));
+  assert.equal(workoutScore(store.load().sessions[0]).score, 85);
+  assert.equal(workoutScore(session, store.saveScoreWeights({ completion: 0, targets: 100, effort: 0 }).scoreWeights).score, 100);
   const custom = dailyWorkoutScore(today, [], [], { evaluate: context => context.day });
   assert.equal(custom, today);
+});
+
+test('score excludes extra and warm-up rows, counts missing prescribed work, and tapers effort', () => {
+  const { version, log } = fixture();
+  const session = structuredClone(log('2026-11-17', 80));
+  const row = session.snapshot.exercises[0];
+  const first = session.results[1];
+  row.work[0] = { ...row.work[0], sets: 2, reps: { minimum: 5, maximum: 8 }, effort: { kind: 'rir', value: 3 } };
+  first.reps = 7;
+  first.rir = 1;
+  session.scoreSlots[row.id].push('missing');
+  session.log.exercises[0].sets.push({ id: 'extra', purpose: 'working', plan: row.work[0], status: 'completed' });
+  session.results.push({ ...first, id: 'extra', reps: 20, rir: 3 });
+  const scored = workoutScore(session);
+  assert.equal(scored.score, 65);
+  assert.match(scored.components[0].detail, /1 of 2/);
+  assert.equal(scored.components[2].points, 10.000000000000002);
+  session.snapshot.revision = 0;
+  assert.equal(workoutScore(session).status, 'unavailable');
+  assert.equal(version.revision, 1);
+});
+
+test('target scoring uses the limiting side and preserves measurement direction and type', () => {
+  const amount = (kind, value) => ({ kind, value });
+  const options = [
+    [{ reps: 8, rightReps: 4, amount: amount('weight', 100) }, { reps: { minimum: 5 }, target: amount('weight', 50) }, 0.8],
+    [{ amount: amount('assistance', 20), rightAmount: amount('assistance', 40) }, { target: amount('assistance', 20) }, 0.5],
+    [{ amount: amount('duration', 15) }, { target: amount('duration', 30) }, 0.5],
+    [{ amount: amount('distance', 110) }, { target: amount('distance', 100) }, 1],
+    [{ amount: amount('weight', 4) }, { target: amount('setting', '4') }, 0],
+  ];
+  for (const [result, plan, expected] of options) assert.equal(prescribedTargetCredit(result, plan), expected);
+});
+
+test('a workout-only warm-up edit keeps the original working slot scoreable', () => {
+  const { store, version, schedule } = fixture();
+  const day = '2026-11-20';
+  const session = store.startScheduled(schedule(day), day, date(day)).sessions.at(-1);
+  const row = version.exercises[0];
+  const original = session.scoreSlots[row.id][0];
+  const draft = makeDraft(version, 'kg');
+  draft.exercises[0].warm.push({ ...blankSet(), minimum: '3', target: '60' });
+  const edited = store.editSession(session.id, draft, 'kg').sessions.at(-1);
+  assert.deepEqual(edited.log.exercises[0].sets.map(set => set.purpose), ['warm-up', 'warm-up', 'working']);
+  assert.equal(edited.log.exercises[0].sets.at(-1).id, original);
+  store.logChange(session.id, { action: 'complete', exerciseID: row.id, setID: original }, 'kg', date(day, '02').toISOString());
+  const saved = store.finish(session.id, true, date(day, '03')).sessions.at(-1);
+  assert.equal(workoutScore(saved).score, 100);
 });
 
 test('the recap follows the configured start, does not look ahead in history and identifies a distant upcoming weekday plan', () => {

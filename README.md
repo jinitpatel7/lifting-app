@@ -18,11 +18,13 @@ Open **History → Sessions** for the calendar or chronological list. Use **Add 
 
 Open **History → Progress** for exercise trends, records, and weekly set counts. Switch between working sets and warm-ups. **Analytics settings** controls visible metrics, weekly dashboard statistics, and the criteria for possible plateau flags.
 
-**Weekly recap** summarizes the selected training week and separates scheduled completions, incomplete logs, and unscheduled work. Expand **Next scheduled workout** for planned targets and a separate forecast. On Today, **Workout score unavailable** opens the proposed breakdown. No score is calculated while the formula is under review.
+**Weekly recap** summarizes the selected training week and separates scheduled completions, incomplete logs, and unscheduled work. Expand **Next scheduled workout** for planned targets and a separate forecast.
+
+Expand **Workout score** at finish or in History to see the breakdown against the session’s saved working targets. **Settings → Workout score weights** defaults to 60 for prescribed work completed, 25 for targets met, and 15 for effort alignment. Available weights are normalized on each workout. Finishing an unplanned workout still shows the session summary.
 
 Open **Calorie inputs** on a finished workout to choose an activity and enter its duration. A weigh-in on that workout’s date lets Setline show estimated gross calories using the Adult Compendium. [Compendium activity table](https://pacompendium.com/conditioning-exercise/)
 
-Choose **Review progression** in History → Progress, routine options, or the finish summary. Select an exercise slot and configure how to progress it and what to do after a missed target. The review shows the planned targets, the recorded sets behind each suggestion, and any proposed targets. **Accept suggestion** saves a new routine version. **Override targets in routine editor** lets you choose the new targets yourself. Scheduled versions and workout history stay pinned to their saved plans.
+Review recommendations at finish, on the scheduled workout, or in the active logger. **Review progression** in History or Routines also opens the exercise rules. The review shows the planned targets, actual results, and exact proposed change. Choose **Apply once** for the next matching routine start, **Update routine** to create a new version, or **Edit recommendation** before choosing a scope. **Dismiss** hides that suggestion until its evidence changes. Historical sessions and already scheduled versions retain their saved plans.
 
 Open **Performance forecast preview** on a scheduled workout or a saved routine to see the expected range for the first straight working set of each exercise. Setline saves the issued forecast in the workout, where it remains available after corrections. **History → Progress → Forecast accuracy** compares the model with the previous comparable session. Forecasts describe expected performance and leave all routine targets under your control.
 

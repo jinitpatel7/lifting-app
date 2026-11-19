@@ -157,6 +157,7 @@ struct PersonalHistoryScreen: View {
             PersonalStatus(title: session.plan.name, symbol: session.historyStatus == .completed ? "checkmark.circle" : "dumbbell") {
                 HistorySessionDetails(session: session, unit: unit)
                 if session.completedAt != nil {
+                    WorkoutScoreBreakdown(assessment: PrescribedWorkoutScore.assessment(session, weights: model.records.scoreWeights ?? WorkoutScoreWeights()))
                     WorkoutEnergySummary(session: session, records: model.records) { presented = .energy(session.id) }
                 }
                 WorkoutForecastArchive(session: session, unit: unit)
@@ -483,6 +484,11 @@ struct HistoryFinishView: View {
                 Section(session.plan.name) {
                     Text(session.historyStatus.rawValue).foregroundStyle(Palette.purple)
                     HistoryMetricsRows(metrics: WorkoutHistory.metrics(session), unit: unit)
+                }
+                WorkoutScoreBreakdown(assessment: PrescribedWorkoutScore.assessment(session, weights: model.records.scoreWeights ?? WorkoutScoreWeights()))
+                if let version = model.records.version(session.routineSnapshot.id), WorkoutAnalytics.context(session, records: model.records).kind != .deload {
+                    WorkoutRecommendations(model: model, version: version, unit: unit,
+                        exerciseIDs: Set(session.performedSets.map(\.plannedExerciseID)))
                 }
                 if let (previous, scope) = WorkoutHistory.prior(to: session, in: sessions) {
                     Section(scope.exerciseID == nil ? "Since the previous workout with this routine" : "Since the previous \(scope.label) session") {

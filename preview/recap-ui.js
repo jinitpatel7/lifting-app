@@ -16,10 +16,12 @@ const metrics = { weight: 'Load', added: 'Added load', assistance: 'Assistance',
 const sourceLinks = `<a href="${energySource}" target="_blank" rel="noreferrer">Adult Compendium activity table</a> · <a href="${energyReference}" target="_blank" rel="noreferrer">MET definition</a>`;
 
 export function renderScore(assessment) {
-  const title = assessment.status === 'unavailable' ? 'Workout score unavailable' : assessment.summary;
+  if (assessment.status === 'unavailable') return `<p class="builder-hint workout-score">${html(assessment.reason)}</p>`;
+  const title = assessment.summary;
   return `<details class="surface settings-card workout-score"><summary>${html(title)}</summary><div class="stack recap-content">
-    <p>${html(assessment.reason ?? '')}</p><h3>Proposed breakdown</h3>
-    <dl>${assessment.components.map(component => `<div><dt>${html(component.name)}</dt><dd>${html(component.detail)}</dd></div>`).join('')}</dl>
+    <dl>${assessment.components.map(component => `<div><dt>${html(component.name)}</dt><dd>${component.points == null ? 'Unavailable' :
+      `${format(component.points, 1)} / ${format(component.weight * 100, 1)} points`} · ${html(component.detail)}</dd></div>`).join('')}</dl>
+    <p class="builder-hint">Available weights are normalized. Each set’s lowest target credit counts. Effort earns full credit within one point and tapers to zero at four points.</p>
     </div></details>`;
 }
 

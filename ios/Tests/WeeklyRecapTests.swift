@@ -83,8 +83,43 @@ final class WeeklyRecapTests: XCTestCase {
 
         let day = try XCTUnwrap(WorkoutDate("2026-11-20"))
         let output = DailyWorkoutScore.assessment(on: day, records: TrainingRecords(), today: day)
-        guard case .unavailable(let reason) = output.availability else { return XCTFail("Production score must be unavailable") }
-        XCTAssertTrue(reason.contains("awaiting review"))
-        XCTAssertEqual(output.proposedComponents.count, 4)
+        guard case .unavailable(let reason) = output.availability else { return XCTFail("An empty day should have no score") }
+        XCTAssertTrue(reason.contains("Finish a planned workout"))
+        XCTAssertTrue(output.components.isEmpty)
+    }
+
+    func testWorkoutScoreUsesPrescribedSlotsAndRecalculatesCorrections() throws {
+        let day = try XCTUnwrap(WorkoutDate("2026-11-20"))
+        let planned = SetPrescription(sets: 2, reps: RepRange(minimum: 5, maximum: 8),
+            target: .assistance(try XCTUnwrap(Mass(20))), repsInReserve: 3)
+        let entry = PlannedExercise(variant: ExerciseVariant(exercise: Exercise(name: "Pull-up"), equipment: nil,
+            measurement: .assistance(reps: .perSide)), prescription: planned)
+        let version = RoutineVersion(routineID: UUID(), revision: 1, createdAt: day.calendarDate, name: "Pull", exercises: [entry])
+        var session = WorkoutSession(localDate: day, timeZoneIdentifier: "GMT", startedAt: day.calendarDate,
+            scheduleID: nil, routineSnapshot: version, completedAt: day.calendarDate.addingTimeInterval(60))
+        var log = try WorkoutLog(session: session)
+        session.rememberScoreSlots(from: log)
+        let first = log.exercises[0].rows[0].id
+        log.exercises[0].rows[0].status = .completed
+        log.exercises[0].rows[1].status = .skipped
+        let extra = WorkoutSetRow(purpose: .working, prescription: planned, status: .completed)
+        log.exercises[0].rows.insert(extra, at: 0)
+        session.workoutLog = log
+        session.performedSets = [
+            PerformedSet(id: first, plannedExerciseID: entry.id, order: 2, repetitions: .perSide(7),
+                amount: planned.target, actualRIR: 1),
+            PerformedSet(id: extra.id, plannedExerciseID: entry.id, order: 1, repetitions: .perSide(20),
+                amount: planned.target, actualRIR: 3),
+        ]
+        let initial = PrescribedWorkoutScore.assessment(session)
+        guard case .available(let score) = initial.availability else { return XCTFail("Expected a score") }
+        XCTAssertEqual(score, 65)
+        XCTAssertTrue(initial.components[0].detail.contains("1 of 2"))
+        session.performedSets[0].amount = .assistance(try XCTUnwrap(Mass(40)))
+        session.performedSets[0].actualRIR = nil
+        let corrected = PrescribedWorkoutScore.assessment(session)
+        guard case .available(let updated) = corrected.availability else { return XCTFail("Expected an updated score") }
+        XCTAssertEqual(updated, 50)
+        XCTAssertNil(corrected.components[2].points)
     }
 }

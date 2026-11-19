@@ -124,6 +124,7 @@ struct SetlineBackup: Codable {
             "Bodyweight entries have duplicate dates or invalid values.")
         try require(Set(records.readiness.map(\.localDate)).count == records.readiness.count, "Readiness entries have duplicate dates.")
         try require(records.analyticsSettings?.valid != false, "Analytics settings are invalid.")
+        try require(records.scoreWeights?.valid != false, "Workout score weights are invalid.")
         try require(records.sessions.filter { $0.completedAt == nil }.count <= 1, "The backup contains multiple active workouts.")
         for routine in records.routines {
             let history = records.versions(for: routine.id)
@@ -134,6 +135,18 @@ struct SetlineBackup: Codable {
             try require(routines.contains(version.routineID) && (version.categoryID.map(categories.contains) ?? true) &&
                 version.exercises.allSatisfy { $0.variant.equipment.map { equipment.contains($0.id) } ?? true }, "A routine version has a missing relationship.")
             try plan(version, emptyAllowed: false)
+        }
+        var decisionRows: [UUID: Set<UUID>] = [:]
+        for decision in records.progressionDecisions ?? [] {
+            guard let version = records.version(decision.versionID), let row = version.exercises.first(where: { $0.id == decision.rowID }),
+                  decisionRows[decision.versionID, default: []].insert(decision.rowID).inserted else {
+                throw TrainingDataError.invalidRecord("A progression decision has an invalid exercise or routine version.")
+            }
+            if let working = decision.working {
+                let count = (working + (row.warmUps ?? [])).reduce(0) { $0 + min($1.sets, 10_001) }
+                try require(!working.isEmpty && count <= 10_000 && working.allSatisfy { $0.isValid(for: row.variant.measurement) },
+                    "A progression decision has invalid working targets.")
+            }
         }
         for slot in records.schedule {
             try require(versions.contains(slot.routineVersionID) && (slot.programBlockID.map(blocks.contains) ?? true) &&
@@ -146,6 +159,22 @@ struct SetlineBackup: Codable {
         for session in records.sessions {
             try plan(session.routineSnapshot, emptyAllowed: true)
             if let changed = session.sessionPlan { try plan(changed, emptyAllowed: true) }
+            if let intended = session.intendedPlan {
+                try plan(intended, emptyAllowed: false)
+                let original = session.routineSnapshot
+                try require(intended.id == original.id && intended.routineID == original.routineID &&
+                    intended.exercises.count == original.exercises.count && zip(intended.exercises, original.exercises).allSatisfy {
+                        $0.0.id == $0.1.id && $0.0.historyVariantKey == $0.1.historyVariantKey
+                    }, "A workout has an invalid intended plan.")
+            }
+            if let scored = session.scoreSlots {
+                let entries = (session.intendedPlan ?? session.routineSnapshot).exercises
+                let all = scored.values.flatMap { $0 }
+                try require(Set(all).count == all.count && scored.allSatisfy { id, ids in
+                    guard let entry = entries.first(where: { $0.id == id }) else { return false }
+                    return ids.count <= entry.workingSets.reduce(0) { $0 + min($1.sets, 10_000) }
+                }, "A workout has invalid score slots.")
+            }
             try require((session.scheduleID.map(schedule.contains) ?? true) && (session.referenceSessionID.map(sessions.contains) ?? true) &&
                 (session.completedAt.map { $0 >= session.startedAt } ?? true), "A workout has invalid dates or a missing relationship.")
             let slots = Dictionary(uniqueKeysWithValues: session.plan.exercises.map { ($0.id, $0.variant.measurement) })

@@ -176,11 +176,11 @@ struct SetlineRoot: View {
                 TodayScreen(sample: sample, model: model, unit: unit, openRoutines: { tab = .routines },
                             start: start, editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, selectedDay: $day)
             } else {
-                PersonalTodayScreen(records: model.records, unit: unit, browse: { tab = .routines },
+                PersonalTodayScreen(model: model, unit: unit, browse: { tab = .routines },
                                     start: startScheduled, startEmpty: { if model.startEmptyWorkout() { sheet = .workout } },
                                     editWeight: { sheet = .bodyweight($0) }, browseMuscle: browseMuscle, openSchedule: { sheet = .schedulePlanner },
                                     move: { sheet = .moveScheduled($0) }, skip: skipScheduled, logReadiness: { sheet = .readiness($0) },
-                                    reviewProgression: { sheet = .progression($0) }, selectedDay: $day, anchor: $trainingAnchor)
+                                    selectedDay: $day, anchor: $trainingAnchor)
             }
         case .routines:
             if showsSample, let sample = model.sample {
@@ -201,7 +201,7 @@ struct SetlineRoot: View {
                                       jumpTo: $historyDay, selection: $history)
             }
         case .settings:
-            SettingsScreen(appearance: $appearance, opaque: $opaque, unit: $unit,
+            SettingsScreen(model: model, appearance: $appearance, opaque: $opaque, unit: $unit,
                 openPortability: { sheet = .portability }, openAccount: { sheet = .account }, reminders: reminders)
         }
     }

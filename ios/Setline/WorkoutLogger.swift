@@ -45,6 +45,10 @@ struct WorkoutLogger: View {
                     List {
                         if let log = session.workoutLog {
                             logger(session, log: log)
+                            if let version = model.records.version(session.routineSnapshot.id), WorkoutAnalytics.context(session, records: model.records).kind != .deload {
+                                WorkoutRecommendations(model: model, version: version, unit: unit,
+                                    exerciseIDs: Set(session.plan.exercises.map(\.id)))
+                            }
                         } else {
                             Button("Prepare set rows") { model.prepareWorkoutLog(session.id) }
                             if let error = model.storageError { Text(error).foregroundStyle(Palette.red) }
