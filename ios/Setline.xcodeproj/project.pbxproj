@@ -45,6 +45,9 @@
 		100000000000000000000137 /* WorkoutEnergy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000239 /* WorkoutEnergy.swift */; };
 		100000000000000000000138 /* WeeklyRecapScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000240 /* WeeklyRecapScreen.swift */; };
 		100000000000000000000139 /* WorkoutEnergyScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000241 /* WorkoutEnergyScreen.swift */; };
+		100000000000000000000140 /* DataPortability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000242 /* DataPortability.swift */; };
+		100000000000000000000141 /* RoutineExchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000243 /* RoutineExchange.swift */; };
+		100000000000000000000142 /* PortabilityScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000244 /* PortabilityScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -89,6 +92,9 @@
 		100000000000000000000239 /* WorkoutEnergy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WorkoutEnergy.swift; path = Data/WorkoutEnergy.swift; sourceTree = "<group>"; };
 		100000000000000000000240 /* WeeklyRecapScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyRecapScreen.swift; sourceTree = "<group>"; };
 		100000000000000000000241 /* WorkoutEnergyScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutEnergyScreen.swift; sourceTree = "<group>"; };
+		100000000000000000000242 /* DataPortability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DataPortability.swift; path = Data/DataPortability.swift; sourceTree = "<group>"; };
+		100000000000000000000243 /* RoutineExchange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RoutineExchange.swift; path = Data/RoutineExchange.swift; sourceTree = "<group>"; };
+		100000000000000000000244 /* PortabilityScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortabilityScreen.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -143,6 +149,9 @@
 				100000000000000000000239 /* WorkoutEnergy.swift */,
 				100000000000000000000240 /* WeeklyRecapScreen.swift */,
 				100000000000000000000241 /* WorkoutEnergyScreen.swift */,
+				100000000000000000000242 /* DataPortability.swift */,
+				100000000000000000000243 /* RoutineExchange.swift */,
+				100000000000000000000244 /* PortabilityScreen.swift */,
 				100000000000000000000403 /* Resources */,
 			);
 			path = Setline;
@@ -262,6 +271,9 @@
 				100000000000000000000137 /* WorkoutEnergy.swift in Sources */,
 				100000000000000000000138 /* WeeklyRecapScreen.swift in Sources */,
 				100000000000000000000139 /* WorkoutEnergyScreen.swift in Sources */,
+				100000000000000000000140 /* DataPortability.swift in Sources */,
+				100000000000000000000141 /* RoutineExchange.swift in Sources */,
+				100000000000000000000142 /* PortabilityScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

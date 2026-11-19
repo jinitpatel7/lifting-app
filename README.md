@@ -30,6 +30,20 @@ Log bodyweight from **Today**. In **History → Progress**, edit past readings, 
 
 Use **Add progress photos** after finishing a workout, or link photos from the selected date or workout in History. **Compare progress photos** shows two dates side by side. The iPhone app uses Photos to select originals or save a new camera photo. Setline keeps only the device references. Your personal iCloud Photos storage follows your own Photos sync settings. [Apple’s iCloud Photos documentation](https://support.apple.com/en-us/108782)
 
+## Backups and sharing
+
+Open **Settings → Data portability** to export workout CSV, bodyweight CSV, or a versioned full backup. Restore previews the file and replaces the local profile only after confirmation. Full backups restore in the client that created them. Routine files work across iPhone and browser, and equivalent imports keep a single copy. Use **Share routine** or **Share workout summary** to see what you are about to share.
+
+Full backups and account saves have optional controls for notes, bodyweight, readiness, forecasts, and device-photo references. Photo files are excluded. References are off by default and may need relinking on another device. CSV uses kilograms, seconds, and meters, with separate columns for different kinds of load and side-specific results. Exported files contain readable data, so choose a private location for personal backups.
+
+## Optional account storage
+
+**Settings → Account storage** allows you to create an account or sign in, manually save or restore a backup, or delete the saved backup. Each account has a separate iPhone and browser snapshot. Accounts are optional. Sign-in sessions are held in memory by the clients.
+
+The account service runs with the preview on Node.js 22.15 or later. It listens on loopback and defaults to `.setline-data` for its SQLite database and backup encryption key. Set `SETLINE_DATA_DIR` to a private persistent directory for long-lived use. An optional `SETLINE_BACKUP_KEY` supplies a stable 32-byte key as 64 hexadecimal characters. Keep the key with secure server backups so saved records remain readable.
+
+For access from an iPhone or another device, serve the loopback app through an HTTPS reverse proxy and set `SETLINE_PUBLIC_ORIGIN` to its public HTTPS origin. Enter that same HTTPS address in the iPhone account screen. No hosted service ships with the workspace. The account service uses password sign-in and has no password recovery flow.
+
 ## Open the preview
 
 Run `npm run dev` from this folder. The Node.js preview stores routines, workout plans, weights, and preferences in the browser and includes the separate sample mode. Photo linking uses a supported local file picker, such as Chrome’s on desktop. Camera capture uses the iPhone app. [Open the local preview](http://127.0.0.1:4173/)

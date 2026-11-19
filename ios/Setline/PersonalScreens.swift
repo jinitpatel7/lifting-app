@@ -157,6 +157,7 @@ struct PersonalRoutinesScreen: View {
     let versionHistory: (UUID) -> Void
     let schedule: (RoutineVersion) -> Void
     let reviewProgression: (UUID) -> Void
+    let shareRoutine: (UUID) -> Void
     @State private var category: UUID?
 
     var body: some View {
@@ -189,6 +190,7 @@ struct PersonalRoutinesScreen: View {
                     Button("Version history") { versionHistory(version.routineID) }
                     Button("Schedule workout") { schedule(version) }
                     Button("Review progression") { reviewProgression(version.routineID) }
+                    Button("Share routine") { shareRoutine(version.id) }
                 } label: {
                     Label("Routine options", systemImage: "ellipsis.circle").frame(minHeight: 44)
                 }

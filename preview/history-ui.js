@@ -110,7 +110,7 @@ export function historyCard(session, unit, active, photos, dateLabel, entries) {
     ${session.snapshot.revision > 0 ? `<details><summary>Original routine prescription</summary>${renderPlan(session.snapshot, unit)}</details>` : ''}
     <section class="history-photos"><h4>Progress photos</h4>${renderPhotoArea(photos, dayOf(session), session.id, Boolean(session.completedAt))}</section>
     <div class="builder-actions">${session.completedAt ? button('Edit workout', 'history-edit', session.id) +
-      button('Compare sessions', 'history-compare', session.id) + (active ? '' : button('Repeat workout', 'plan-repeat', session.id)) :
+      button('Compare sessions', 'history-compare', session.id) + button('Share workout summary', 'data-summary', session.id) + (active ? '' : button('Repeat workout', 'plan-repeat', session.id)) :
       button('Resume workout', 'active')}</div></article>`;
 }
 

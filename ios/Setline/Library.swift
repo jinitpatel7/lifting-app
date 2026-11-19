@@ -135,6 +135,8 @@ struct SettingsScreen: View {
     @Binding var appearance: Appearance
     @Binding var opaque: Bool
     @Binding var unit: WeightUnit
+    let openPortability: () -> Void
+    let openAccount: () -> Void
     @Environment(\.accessibilityReduceTransparency) private var systemOpaque
 
     var body: some View {
@@ -163,6 +165,8 @@ struct SettingsScreen: View {
             title("Local data", icon: "info.circle")
             Text("Your training data is stored on this iPhone. Sample data has its own preview and storage.")
                 .font(.subheadline).foregroundStyle(Palette.muted)
+            Button("Data portability", action: openPortability).buttonStyle(SecondaryButton())
+            Button("Account storage", action: openAccount).buttonStyle(SecondaryButton())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14).surface()

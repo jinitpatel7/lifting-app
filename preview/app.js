@@ -22,6 +22,8 @@ import { renderForecastEvaluation, renderForecastPreview } from './forecast-ui.j
 import { renderEnergyEditor, renderScore, renderWeeklyRecap } from './recap-ui.js';
 import { weeklyRecap } from './weekly-recap.js';
 import { dailyWorkoutScore } from './workout-score.js';
+import { createProfileStorage } from './portability.js';
+import { createPortabilityUI } from './portability-ui.js';
 
 const icons = {
   mark: '<path d="M3 15.5V8.5m4 10v-13m5 11v-9m5 11v-13m4 10v-7M7 12h10"/>',
@@ -56,14 +58,11 @@ const dock = document.querySelector('#dock');
 const dialog = document.querySelector('#dialog');
 const announcement = document.querySelector('#announcement');
 const systemDark = matchMedia('(prefers-color-scheme: dark)');
-const storage = {
-  getItem: key => localStorage.getItem(key),
-  setItem: (key, value) => localStorage.setItem(key, value),
-};
+const storage = createProfileStorage(localStorage);
 const store = createBrowserStore(storage);
 const exerciseStore = createExerciseStore(storage);
 const routineStore = createRoutineStore(storage);
-const photoStore = createDevicePhotoStore(window.indexedDB);
+const photoStore = createDevicePhotoStore(window.indexedDB, storage.photoScope);
 const tabs = [
   ['today', 'Today', 'Today / Log'], ['routines', 'Routines', 'Routines'],
   ['history', 'History', 'History / Progress'], ['settings', 'Settings', 'Settings'],
@@ -407,6 +406,7 @@ function settingsPage() {
       <section class="surface settings-card settings-note">
         <div class="section-label"><span class="tile-icon small">${icon('info', 19)}</span><h2>Local data</h2></div>
         <p>Routines, workouts, bodyweight entries, and preferences are saved in this browser. Sample data has its own preview and storage.</p>
+        <div class="builder-actions"><button class="secondary" data-action="data-open">Data portability</button><button class="secondary" data-action="data-account">Account storage</button></div>
       </section>
     </div>`;
 }
@@ -447,6 +447,22 @@ function showDialog(type, title, body, trigger) {
   if (!dialog.open) dialog.showModal();
   dialog.querySelector('[autofocus]')?.focus();
 }
+
+const portability = createPortabilityUI({ dialog, show: showDialog, storage, photos: photoStore, catalog, lookup: libraryExercise, announce,
+  read: () => ({ plans: routineStore.load(), weights: store.loadUser(), library: exerciseStore.load(), photos: state.photoLinks,
+    preferences: { appearance: state.appearance, opaque: state.opaque, unit: state.unit } }),
+  refresh: async () => {
+    state.planRecords = routineStore.load();
+    state.user = store.loadUser();
+    state.exercises = exerciseStore.load();
+    state.photoLinks = await photoStore.list().catch(() => []);
+    Object.assign(state, store.loadPreferences());
+    state.unit ??= 'kg'; state.appearance ??= 'system'; state.opaque ??= false;
+    state.builder = null;
+    state.historyView.filters = {};
+    render();
+  },
+});
 
 function showWeight(trigger, date = state.date) {
   if (!isDay(date)) return;
@@ -915,7 +931,7 @@ function finishLogger(id, early) {
 function showFinishedWorkout(session) {
   if (!session) return;
   showDialog('history-finish', 'Workout summary', renderFinishSummary(session, state.planRecords.sessions, state.unit, dateLabel, state.user.entries) +
-    `<div class="builder-actions"><button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>
+    `<div class="builder-actions"><button type="button" class="secondary" data-action="data-summary" data-value="${session.id}">Share workout summary</button><button type="button" class="secondary" data-action="photos-manage" data-value="${session.id}">Add progress photos</button>
       ${state.planRecords.routines.length ? `<button type="button" class="secondary" data-action="progression-open" data-value="${personalRoutine(session.snapshot.routineID)?.id ?? ''}">Review progression</button>` : ''}</div>`, '.active-bar');
 }
 
@@ -1361,6 +1377,7 @@ document.addEventListener('click', event => {
   if (!target) return;
   const { action, value } = target.dataset;
   const focus = `[data-action="${action}"]${value === undefined ? '' : `[data-value="${value}"]`}`;
+  if (action.startsWith('data-')) { void portability.action(action.slice(5), value, dialog.open ? dialogTrigger ?? focus : focus); return; }
   if (action.startsWith('plan-')) {
     handlePlanAction(action, value, focus);
     return;
@@ -1495,6 +1512,7 @@ document.addEventListener('click', event => {
 });
 
 dialog.addEventListener('close', () => {
+  portability.closed();
   const trigger = dialogTrigger;
   const wasWorkout = dialogAction === 'personal-workout';
   dialogAction = null;
@@ -1511,6 +1529,7 @@ dialog.addEventListener('close', () => {
   if (trigger) document.querySelector(trigger)?.focus({ preventScroll: true });
 });
 dialog.addEventListener('change', event => {
+  if (dialogAction === 'portability') { void portability.change(event); return; }
   const field = event.target;
   if (dialogAction === 'progression-detail' && field.form?.id === 'progression-form') {
     updateProgressionFields(field.form);
@@ -1600,6 +1619,7 @@ dialog.addEventListener('input', event => {
   } catch (error) { planError(error); }
 });
 dialog.addEventListener('submit', event => {
+  if (dialogAction === 'portability') { void portability.submit(event); return; }
   if (dialogAction === 'energy' && event.target.id === 'energy-form') {
     event.preventDefault();
     const values = new FormData(event.target);

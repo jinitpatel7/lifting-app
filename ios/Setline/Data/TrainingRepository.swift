@@ -131,7 +131,11 @@ struct TrainingFiles {
 
     private func write(_ data: Data, to filename: String) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #if os(iOS)
+        try data.write(to: url(filename), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        #else
         try data.write(to: url(filename), options: .atomic)
+        #endif
     }
 
 }
@@ -516,6 +520,19 @@ final class TrainingRepository {
         next.invalidateHistoryPredictions(comparedTo: records)
         try files.saveUserData(next)
         records = next
+    }
+
+    func restoreBackup(_ backup: SetlineBackup) throws {
+        try SetlineBackup.validate(backup.payload.records)
+        try files.saveUserData(backup.payload.records)
+        records = backup.payload.records
+    }
+
+    func importRoutine(_ file: RoutineExchange) throws -> Bool {
+        var next = records
+        guard try file.insert(into: &next, catalog: catalog) else { return false }
+        try commit { $0 = next }
+        return true
     }
 }
 

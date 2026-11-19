@@ -562,3 +562,9 @@ dialog::backdrop { background: rgb(20 15 29 / .58); }
 @supports not (backdrop-filter: blur(1px)) {
   .tab-bar { background: var(--surface); }
 }
+.data-panel { min-width: 0; }
+.data-panel fieldset { min-width: 0; padding: .55rem; border: 1px solid var(--border); border-radius: .7rem; }
+.data-panel label:not(.builder-check) { display: grid; gap: .3rem; }
+.data-panel input:not([type="checkbox"]) { max-width: 100%; min-height: 44px; padding: .45rem; color: var(--text); background: var(--surface-soft); border: 1px solid var(--border); border-radius: .55rem; }
+.data-preview { margin: 0; padding: .65rem; background: var(--surface-soft); border-radius: .65rem; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.data-panel .entry-error:empty { display: none; }

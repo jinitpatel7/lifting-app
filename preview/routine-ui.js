@@ -127,7 +127,7 @@ export function setSummary(block, row, unit, precision) {
   const load = amount(block.target, unit, precision);
   const effort = block.effort ? (block.effort.kind === 'failure' ? 'To failure' : `${block.effort.kind.toUpperCase()} ${block.effort.value}`) : '';
   return [range ? `${block.sets} × ${range} reps${counting}` : `${block.sets} sets`, load && `${load}${row.basis === 'perDumbbell' ? ' per dumbbell' : ''}`,
-    block.rest === null ? '' : `${block.rest}s rest`, block.structure === 'dropSet' ? 'Drop set' : block.structure === 'restPause' ? 'Rest-pause' : '',
+    block.rest == null ? '' : `${block.rest}s rest`, block.structure === 'dropSet' ? 'Drop set' : block.structure === 'restPause' ? 'Rest-pause' : '',
     block.amrap ? 'AMRAP' : '', effort].filter(Boolean).join(' · ');
 }
 
@@ -151,7 +151,7 @@ export function renderPersonalRoutines(data, categoryID, unit, active, entry, da
       ${renderPlan(plan, unit)}
       ${renderForecastPreview(data, plan, { date: localDayKey() }, unit, dateLabel)}
       <div class="builder-actions">${button(active ? 'Resume workout' : 'Log workout', 'plan-start', plan.routineID, 'primary')}
-        ${button('Schedule workout', 'plan-schedule', plan.routineID)}${button('Edit routine', 'plan-edit', plan.routineID)}${button('Duplicate routine', 'plan-duplicate', plan.routineID)}${button('Version history', 'plan-versions', plan.routineID)}${button('Review progression', 'progression-open', plan.routineID)}</div>
+        ${button('Schedule workout', 'plan-schedule', plan.routineID)}${button('Edit routine', 'plan-edit', plan.routineID)}${button('Duplicate routine', 'plan-duplicate', plan.routineID)}${button('Version history', 'plan-versions', plan.routineID)}${button('Review progression', 'progression-open', plan.routineID)}${button('Share routine', 'data-routine', plan.routineID)}</div>
     </article>`).join('') || `<section class="surface settings-card"><h2>${categoryID ? 'No routines in this category' : 'No saved routines'}</h2></section>`}</div>`;
 }
 

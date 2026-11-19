@@ -37,6 +37,7 @@ private enum ActiveSheet: Identifiable {
     case routineEditor(RoutineVersion?), routineHistory(UUID), schedule(RoutineVersion)
     case schedulePlanner, moveScheduled(ScheduleOccurrence), readiness(WorkoutDate)
     case progression(UUID)
+    case portability, account, routineShare(UUID)
 
     var id: String {
         switch self {
@@ -50,6 +51,9 @@ private enum ActiveSheet: Identifiable {
         case .moveScheduled(let slot): "move-\(slot.id)"
         case .readiness(let day): "readiness-\(day.key)"
         case .progression(let id): "progression-\(id.uuidString)"
+        case .portability: "portability"
+        case .account: "account"
+        case .routineShare(let id): "routine-share-\(id.uuidString)"
         }
     }
 }
@@ -68,6 +72,7 @@ struct SetlineRoot: View {
     @State private var history: HistoryScreen.Section = .progress
     @State private var historyDay: WorkoutDate?
     @State private var showsSample = false
+    @State private var account = SetlineAccountClient()
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -118,6 +123,11 @@ struct SetlineRoot: View {
                 ReadinessSheet(model: model, day: day)
             case .progression(let id):
                 ProgressionSheet(model: model, unit: unit, routineID: id)
+            case .portability, .account:
+                PortabilitySheet(model: model, account: account, mode: presented.id == "account" ? .account : .files,
+                    appearance: $appearance, opaque: $opaque, unit: $unit)
+            case .routineShare(let id):
+                if let version = model.records.version(id) { RoutineSharePreview(version: version, unit: unit) }
             }
         }
         .alert("Local storage", isPresented: Binding(
@@ -151,7 +161,8 @@ struct SetlineRoot: View {
                 PersonalRoutinesScreen(records: model.records, unit: unit, start: startSession,
                     browseLibrary: { sheet = .exerciseLibrary(nil) }, edit: { sheet = .routineEditor($0) },
                     duplicate: { _ = model.duplicateRoutine($0) }, versionHistory: { sheet = .routineHistory($0) },
-                    schedule: { sheet = .schedule($0) }, reviewProgression: { sheet = .progression($0) })
+                    schedule: { sheet = .schedule($0) }, reviewProgression: { sheet = .progression($0) },
+                    shareRoutine: { sheet = .routineShare($0) })
             }
         case .history:
             if showsSample, let sample = model.sample {
@@ -161,7 +172,8 @@ struct SetlineRoot: View {
                                       jumpTo: $historyDay, selection: $history)
             }
         case .settings:
-            SettingsScreen(appearance: $appearance, opaque: $opaque, unit: $unit)
+            SettingsScreen(appearance: $appearance, opaque: $opaque, unit: $unit,
+                openPortability: { sheet = .portability }, openAccount: { sheet = .account })
         }
     }
 

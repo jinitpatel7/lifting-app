@@ -2,7 +2,7 @@ import SwiftUI
 
 private enum HistorySheet: Identifiable {
     case add(WorkoutDate), edit(UUID), compare(UUID), weight(WorkoutDate)
-    case photos(WorkoutDate, UUID?), comparePhotos(WorkoutDate), progression, energy(UUID)
+    case photos(WorkoutDate, UUID?), comparePhotos(WorkoutDate), progression, energy(UUID), share(UUID)
 
     var id: String {
         switch self {
@@ -14,6 +14,7 @@ private enum HistorySheet: Identifiable {
         case .comparePhotos(let day): "compare-photos-\(day.key)"
         case .progression: "progression"
         case .energy(let id): "energy-\(id.uuidString)"
+        case .share(let id): "share-\(id.uuidString)"
         }
     }
 }
@@ -72,6 +73,10 @@ struct PersonalHistoryScreen: View {
             case .energy(let id):
                 if let workout = model.records.sessions.first(where: { $0.id == id }) {
                     WorkoutEnergyEditor(model: model, session: workout)
+                }
+            case .share(let id):
+                if let workout = model.records.sessions.first(where: { $0.id == id && $0.completedAt != nil }) {
+                    WorkoutSharePreview(session: workout, records: model.records, unit: unit)
                 }
             }
         }
@@ -190,6 +195,7 @@ struct PersonalHistoryScreen: View {
     @ViewBuilder private func actions(_ session: WorkoutSession) -> some View {
         if session.completedAt != nil {
             Button("Edit workout") { presented = .edit(session.id) }.buttonStyle(SecondaryButton())
+            Button("Share workout summary") { presented = .share(session.id) }.buttonStyle(SecondaryButton())
             Button("Compare sessions") { presented = .compare(session.id) }.buttonStyle(SecondaryButton())
             Button("Repeat workout") { repeatWorkout(session.id) }.buttonStyle(SecondaryButton()).disabled(model.records.activeSession != nil)
         } else {
@@ -469,6 +475,7 @@ struct HistoryFinishView: View {
     @State private var linking = false
     @State private var progression = false
     @State private var energyEditor = false
+    @State private var sharing = false
 
     var body: some View {
         NavigationStack {
@@ -484,6 +491,9 @@ struct HistoryFinishView: View {
                     }
                 } else { Text("No prior comparable session.") }
                 WorkoutForecastArchive(session: session, unit: unit)
+                Button("Share workout summary") { sharing = true }.sheet(isPresented: $sharing) {
+                    WorkoutSharePreview(session: session, records: model.records, unit: unit)
+                }
                 WorkoutEnergySummary(session: session, records: model.records) { energyEditor = true }
                     .sheet(isPresented: $energyEditor) { WorkoutEnergyEditor(model: model, session: session) }
                 Button("Add progress photos") { linking = true }
